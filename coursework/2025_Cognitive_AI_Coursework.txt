@@ -1,0 +1,40 @@
+Coursework: Integrating brain-inspired constraints in neural network models.
+
+For this coursework, you are tasked with exploring the integration of brain-inspired changes into artificial neural network models, and critically analysing the networks’ behaviour.
+
+Your task will be to:
+
+1) Critically discuss how changes to the following can be used to impose brain-like constraints on an artificial neural network, with examples (using equations or figures where helpful).
+[Max 4 pages, including Figures, for parts a, b, c and d combined]
+a. the architecture [5]
+b. the cost function [5]
+c. the learning rule [5]
+d. anything else (e.g. training data or curriculum, time constants etc.) [5]
+
+2) NeuroGym (https://neurogym.github.io/envs/index.html) is a curated collection of neuroscience tasks, with a common interface, designed to facilitate training of neural network models on neuroscience tasks.
+
+a. Initially, your goal is to train and compare multiple (at least two) models to perform one of these tasks. One model should be a standard recurrent neural network model (e.g. vanilla RNN, leaky RNN, light GRU, GRU, LSTM). One or more of the other models you implement should differ from the standard model based on a brain-inspired change (which you described in your answer to question 1). Describe your models including equations and schematic diagrams, highlighting the key differences. [10] [Max 3 pages, including Figures]
+
+b. Compare your models both in how well they learn to perform the task, and by analysing the hidden unit activity of the trained models to understand how the trained models solve the task. Highlight and interpret any differences between the models. [20] [Max 4 pages, including Figures]
+
+c. Using the same models, train them to solve a second task from Neurogym, and analyse them as in b). Do your conclusions from b) hold for this second task? [20] [Max 4 pages, including Figures]
+
+d. These marks are reserved for something original. Some possibilities could be training networks with a totally different architecture, implementing a different type of learning (e.g. reinforcement), implementing neuromodulation, training on multiple tasks at once, or many tasks or anything else unexpected. Anything presented in this section should be done so in comparison with what you know about how brains and standard ML/AI models learn. This part is only worth 20% of the coursework marks [10% of total], so please do not spend a disproportionate amount of time on it. [20] [Max 4 pages, including Figures]
+
+3) Conclude with a brief discussion, summarising what you have learned from your analyses, with reference to the literature. [10] [max 500 words]
+
+Please include a reference list at the end of the document. The final reference list is not included in word or page counts.
+
+
+Submission Guidelines:
+
+Your report should be submitted on Blackboard (Cognitive Artificial Intelligence (SEMTM0011) → Unit Assessment).
+
+Include the report in PDF format, with necessary code snippets and diagrams embedded. Full code should be submitted as supplementary material (e.g. via a link to a GitHub repository). Page/font size guidelines are NIH standard, minimum font size 11, Arial, margins at least 0.5 inches on all sides (https://brdo.berkeley.edu/sites/default/files/nih_formatting_at_a_glance-1.pdf). Overleaf/Word standard settings are fine. Figures do not need to follow font guidelines above, but must be readable as printed on an A4 page at normal (100%) scale.
+
+Note 1: Where possible, cite papers and/or use simulations/plots to support your claims.
+Note 2: Collaborative work is encouraged, for example, for coding and understanding of the algorithm, but every submission should be individual/unique.
+
+
+
+
