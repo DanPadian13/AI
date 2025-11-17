@@ -32,6 +32,18 @@ Self-contained Jupyter notebooks with solutions for each lab:
 
 Lecture slides and notes covering the taught material:
 
+**NOTE: All PDFs have been converted to comprehensive markdown (.md) files. Agents should read from the .md files rather than PDFs as they are faster to process and contain detailed extractions of all content including diagrams, mathematical formulas, and references.**
+
+**Markdown files (RECOMMENDED - read these):**
+- `deep_architectures_full_slides.md`
+- `How_we_learn_brain_full_slides.md`
+- `How_we_learn_psych_full_slides.md`
+- `Memory_psych_full_slides.md`
+- `recurrent_architectures_full_slides.md`
+- `reinforcement_learning_lecture_full_notes.md`
+- `supervised_learning_deep_full_slides.md`
+
+**Original PDFs (archived - use .md files instead):**
 - `deep_architectures_full_slides.pdf`
 - `How_we_learn_brain_full_slides.pdf`
 - `How_we_learn_psych_full_slides.pdf`
