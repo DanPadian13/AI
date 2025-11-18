@@ -63,3 +63,24 @@ Lecture slides and notes covering the taught material:
 - Document any new subdirectories or resources in this README to keep the structure up to date for future agents.
 - This is a single-person repo; keep processes lightweight and rely on the local environment—no complex container or multi-user setup is required unless explicitly stated.
 - NeuroGym will be used extensively; plan to install/import it only inside the local environment (no containerization expected) and mirror the styles/examples in `context/course_code` when writing solution code.
+
+## Code Style Preferences
+
+**IMPORTANT:** User prefers minimal documentation in code.
+
+- **Avoid excessive comments** - code should be self-explanatory through clear naming and structure
+- **Avoid long docstrings** - use brief inline comments only when necessary
+- **Simplicity over verbosity** - write clean, concise code that does the job without over-explanation
+- Keep functions short and focused - the code itself should tell the story
+- Prioritize readability through good variable names rather than lengthy documentation
+
+## Output Preferences
+
+- **Save plots to `images/` folder** - never use `plt.show()`, always save to images directory
+- Create the images folder automatically if it doesn't exist
+- Use descriptive filenames for saved plots (e.g., `images/question_2a_results.png`)
+- Close plots after saving to free memory (`plt.close()`)
+
+- **Save model checkpoints to `checkpoints/` folder** - all `.pt` or `.pth` files go here
+- Create the checkpoints folder automatically if it doesn't exist
+- Use descriptive filenames for checkpoints (e.g., `checkpoints/question_2a_models_and_data.pt`)
