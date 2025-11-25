@@ -1,0 +1,24 @@
+======================================================================
+ReadySetGo Task Analysis
+======================================================================
+Loading models from: checkpoints/question_2a_models_and_data.pt
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/gymnasium/envs/registration.py:481: UserWarning: [33mWARN: The environment creator metadata doesn't include `render_modes`, contains: ['paper_link', 'paper_name', 'tags'][0m
+  logger.warn(
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.seed to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.seed` for environment variables or `env.get_wrapper_attr('seed')` that will search the reminding wrappers.[0m
+  logger.warn(
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.new_trial to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.new_trial` for environment variables or `env.get_wrapper_attr('new_trial')` that will search the reminding wrappers.[0m
+  logger.warn(
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.ob to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.ob` for environment variables or `env.get_wrapper_attr('ob')` that will search the reminding wrappers.[0m
+  logger.warn(
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.gt to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.gt` for environment variables or `env.get_wrapper_attr('gt')` that will search the reminding wrappers.[0m
+  logger.warn(
+
+Collecting data from 100 trials...
+Data collection complete!
+
+======================================================================
+Generating Visualizations
+======================================================================
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/gymnasium/core.py:311: UserWarning: [33mWARN: env.actions to get variables from other wrappers is deprecated and will be removed in v1.0, to get this variable you can do `env.unwrapped.actions` for environment variables or `env.get_wrapper_attr('actions')` that will search the reminding wrappers.[0m
+  logger.warn(
+Detected Go action index: 1

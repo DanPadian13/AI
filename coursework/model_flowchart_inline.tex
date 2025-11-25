@@ -1,0 +1,56 @@
+% Add to preamble:
+% \usepackage{tikz}
+% \usetikzlibrary{shapes.geometric, arrows.meta, positioning}
+
+% Include this in your document where you want the flowchart:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    model/.style={rectangle, rounded corners, minimum width=4cm, minimum height=1cm,
+                  text centered, draw=black, fill=blue!15, font=\bfseries\small},
+    constraint/.style={rectangle, rounded corners, minimum width=4cm, minimum height=0.6cm,
+                       text centered, draw=black, fill=green!15, font=\footnotesize},
+    added/.style={rectangle, rounded corners, minimum width=4cm, minimum height=0.6cm,
+                  text centered, draw=black, fill=orange!20, font=\footnotesize},
+    arrow/.style={-Stealth, thick},
+    node distance=0.4cm
+]
+
+% Model 1
+\node (m1) [model] {Vanilla RNN};
+
+% Arrow
+\node (a1) [below=0.6cm of m1] {};
+\draw [arrow] (m1) -- node[right, font=\small] {+ Leaky} (a1);
+
+% Model 2
+\node (m2) [model, below=0.6cm of m1] {Leaky RNN};
+\node (m2c1) [constraint, below=0.1cm of m2, font=\scriptsize] {Time constant $\tau=100$ms, ReLU, noise};
+
+% Arrow
+\node (a2) [below=0.6cm of m2c1] {};
+\draw [arrow] (m2c1) -- node[right, font=\small] {+ FA} (a2);
+
+% Model 3
+\node (m3) [model, below=0.6cm of m2c1] {Leaky RNN + FA};
+\node (m3c1) [added, below=0.1cm of m3, font=\scriptsize] {Feedback Alignment ($B$ not $W^T$)};
+
+% Arrow
+\node (a3) [below=0.6cm of m3c1] {};
+\draw [arrow] (m3c1) -- node[right, font=\small] {+ Full Bio} (a3);
+
+% Model 4
+\node (m4) [model, below=0.6cm of m3c1] {Bio-Realistic RNN};
+\node (m4c1) [added, below=0.1cm of m4, font=\scriptsize] {Dale's (80\% E, 20\% I), Sparse (20\%), L2};
+
+% Side annotations
+\node[anchor=west, font=\scriptsize, align=left] at (5.5, 0) {Baseline};
+\node[anchor=west, font=\scriptsize, align=left] at (5.5, -2.4) {Temporal\\Integration};
+\node[anchor=west, font=\scriptsize, align=left] at (5.5, -4.8) {Plausible\\Learning};
+\node[anchor=west, font=\scriptsize, align=left] at (5.5, -7.2) {Full\\Constraints};
+
+\end{tikzpicture}
+\caption{Progressive addition of biological constraints across four model architectures. Each model builds on the previous by adding brain-inspired mechanisms.}
+\label{fig:model_progression}
+\end{figure}

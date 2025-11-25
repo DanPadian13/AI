@@ -1,8 +1,8 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import warnings
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 import neurogym as ngym
 from sklearn.decomposition import PCA
 import os
@@ -12,6 +12,31 @@ logging.getLogger('matplotlib.font_manager').setLevel(level=logging.CRITICAL)
 
 # Import model classes from Question_2a
 from Question_2a import Net, VanillaRNN, LeakyRNN, LeakyRNNFeedbackAlignment, BiologicallyRealisticRNN
+
+warnings.filterwarnings("ignore")
+
+
+def infer_go_action_index(env, trial_data=None):
+    """Infer the action index corresponding to 'Go'."""
+    if hasattr(env, 'actions'):
+        for idx, action_name in enumerate(getattr(env, 'actions')):
+            if isinstance(action_name, str) and 'go' in action_name.lower():
+                return idx
+
+    if trial_data:
+        sample_name = next(iter(trial_data.keys()))
+        targets = trial_data[sample_name]['targets']
+        if targets:
+            concatenated = np.concatenate(targets)
+            unique_vals = sorted({int(round(val)) for val in concatenated})
+            positive = [val for val in unique_vals if val > 0]
+            if positive:
+                return positive[-1]
+
+    if hasattr(env, 'action_space') and env.action_space.n > 0:
+        return env.action_space.n - 1
+
+    return 1
 
 
 def load_models_and_config(checkpoint_path='checkpoints/question_2a_models_and_data.pt'):
@@ -25,7 +50,7 @@ def load_models_and_config(checkpoint_path='checkpoints/question_2a_models_and_d
 
     # Setup environment
     kwargs = {'dt': dt}
-    seq_len = 100
+    seq_len = env_config.get('seq_len', 100)
     dataset = ngym.Dataset(task, env_kwargs=kwargs, batch_size=1, seq_len=seq_len)
     env = dataset.env
 
@@ -92,112 +117,51 @@ def collect_trial_data(models, env, num_trials=100):
     return trial_data
 
 
-def plot_task_structure(env, models=None, output_path='images/readysetgo_task_structure.png'):
-    """Visualize the ReadySetGo task structure with example trials and model predictions."""
-    fig = plt.figure(figsize=(14, 10))
+def plot_task_structure(env, models=None, output_path='images/readysetgo_task_structure.png',
+                        go_action_idx=2):
+    """Visualize the ReadySetGo task structure with one example trial."""
+    fig = plt.figure(figsize=(10, 4))
 
-    if models is None:
-        # Original layout without predictions
-        gs = GridSpec(3, 1, height_ratios=[1, 1, 1], hspace=0.3)
-        n_rows = 3
+    # Create single subplot
+    ax_input = fig.add_subplot(111)
+
+    # Generate one trial
+    env.new_trial()
+    ob, gt = env.ob, env.gt
+
+    time = np.arange(len(ob)) * env.dt
+
+    # Plot input channels
+    for i in range(ob.shape[1]):
+        ax_input.plot(time, ob[:, i] + i*1.2, linewidth=1.5, label=f'Input {i+1}')
+
+    # Mark key events - Ready is channel 1, Set is channel 2
+    ready_time = np.where(ob[:, 1] > 0.5)[0][0] * env.dt if np.any(ob[:, 1] > 0.5) else None
+    set_time = np.where(ob[:, 2] > 0.5)[0][0] * env.dt if np.any(ob[:, 2] > 0.5) else None
+    go_time = None
+    if np.any(gt == go_action_idx):
+        go_time = np.where(gt == go_action_idx)[0][0] * env.dt if np.any(gt == go_action_idx) else None
+
+    if ready_time:
+        ax_input.axvline(ready_time, color='green', linestyle='--', alpha=0.5, label='Ready')
+    if set_time:
+        ax_input.axvline(set_time, color='orange', linestyle='--', alpha=0.5, label='Set')
+    if go_time:
+        ax_input.axvline(go_time, color='red', linestyle='--', alpha=0.5, label='Target Go')
+
+    ax_input.set_xlabel('Time (ms)', fontsize=11)
+    ax_input.set_ylabel('Input Activity', fontsize=11)
+
+    # Calculate sample interval
+    if ready_time and set_time:
+        sample_interval = f'{set_time - ready_time:.0f}ms'
     else:
-        # Layout with predictions
-        gs = GridSpec(3, 2, height_ratios=[1, 1, 1], hspace=0.3, wspace=0.3)
-        n_rows = 3
+        sample_interval = 'N/A'
 
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
-    model_names = ['Vanilla', 'Leaky', 'Leaky+FA', 'Bio-Realistic']
-
-    # Generate 3 example trials
-    for idx, trial_idx in enumerate([0, 50, 100]):
-        # Left column: Task structure
-        if models is None:
-            ax_input = fig.add_subplot(gs[idx])
-        else:
-            ax_input = fig.add_subplot(gs[idx, 0])
-
-        env.new_trial()
-        ob, gt = env.ob, env.gt
-
-        time = np.arange(len(ob)) * env.dt
-
-        # Plot input channels
-        for i in range(ob.shape[1]):
-            ax_input.plot(time, ob[:, i] + i*1.2, linewidth=1.5, label=f'Input {i+1}')
-
-        # Mark key events
-        ready_time = np.where(ob[:, 0] > 0)[0][0] * env.dt if np.any(ob[:, 0] > 0) else None
-        set_time = np.where(ob[:, 1] > 0)[0][0] * env.dt if np.any(ob[:, 1] > 0) else None
-        go_time = np.where(gt > 0)[0][0] * env.dt if np.any(gt > 0) else None
-
-        if ready_time:
-            ax_input.axvline(ready_time, color='green', linestyle='--', alpha=0.5, label='Ready' if idx == 0 else '')
-        if set_time:
-            ax_input.axvline(set_time, color='orange', linestyle='--', alpha=0.5, label='Set' if idx == 0 else '')
-        if go_time:
-            ax_input.axvline(go_time, color='red', linestyle='--', alpha=0.5, label='Target Go' if idx == 0 else '')
-
-        ax_input.set_xlabel('Time (ms)', fontsize=10)
-        ax_input.set_ylabel('Input Activity', fontsize=10)
-
-        # Calculate sample interval
-        if ready_time and set_time:
-            sample_interval = f'{set_time - ready_time:.0f}ms'
-        else:
-            sample_interval = 'N/A'
-
-        ax_input.set_title(f'Trial {idx+1}: Inputs (Interval = {sample_interval})',
-                          fontsize=11, fontweight='bold')
-        if idx == 0:
-            ax_input.legend(loc='upper right', fontsize=7)
-        ax_input.grid(True, alpha=0.3)
-
-        # Right column: Model predictions
-        if models is not None:
-            ax_pred = fig.add_subplot(gs[idx, 1])
-
-            inputs = torch.from_numpy(ob[:, np.newaxis, :]).type(torch.float)
-
-            # Plot target
-            ax_pred.plot(time, gt, 'k-', linewidth=2.5, label='Target', alpha=0.7)
-
-            # Plot each model's predictions
-            for model_idx, (name, model) in enumerate(models.items()):
-                with torch.no_grad():
-                    output, _ = model(inputs)
-                    predictions = torch.argmax(output[:, 0, :], dim=1).cpu().numpy()
-
-                ax_pred.plot(time, predictions, linewidth=2, color=colors[model_idx],
-                           label=name, alpha=0.8)
-
-            # Mark key events
-            if ready_time:
-                ax_pred.axvline(ready_time, color='green', linestyle='--', alpha=0.3)
-            if set_time:
-                ax_pred.axvline(set_time, color='orange', linestyle='--', alpha=0.3, linewidth=2)
-                ax_pred.text(set_time, 1.9, 'Set', fontsize=8, ha='center')
-            if go_time:
-                ax_pred.axvline(go_time, color='red', linestyle='--', alpha=0.3, linewidth=2)
-                ax_pred.text(go_time, 1.9, 'Target Go', fontsize=8, ha='center')
-
-            # Zoom in very close to Target Go time
-            if go_time:
-                window = 200  # Show ±200ms around Go time
-                ax_pred.set_xlim([go_time - window, go_time + window])
-
-            ax_pred.set_xlabel('Time (ms)', fontsize=10)
-            ax_pred.set_ylabel('Action (0=fixate, 1+=go)', fontsize=10)
-            ax_pred.set_title(f'Trial {idx+1}: Predictions (±200ms around Target Go)',
-                            fontsize=11, fontweight='bold')
-            if idx == 0:
-                ax_pred.legend(loc='upper left', fontsize=7)
-            ax_pred.grid(True, alpha=0.3)
-            ax_pred.set_ylim([-0.1, 2.1])
-
-    if models is None:
-        plt.suptitle('ReadySetGo Task Structure', fontsize=14, fontweight='bold', y=0.995)
-    else:
-        plt.suptitle('ReadySetGo Task: Inputs and Model Predictions', fontsize=14, fontweight='bold', y=0.995)
+    ax_input.set_title(f'ReadySetGo Task Structure (Sample Interval = {sample_interval})',
+                      fontsize=13, fontweight='bold')
+    ax_input.legend(loc='upper right', fontsize=9)
+    ax_input.grid(True, alpha=0.3)
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
@@ -227,16 +191,22 @@ def plot_neural_trajectories(trial_data, output_path='images/readysetgo_trajecto
         for trial_idx in range(10):
             activity = trial_data[name]['activities'][trial_idx]
             activity_pca = pca.transform(activity)
+            n_time = activity.shape[0]
 
             # Plot trajectory
             ax.plot(activity_pca[:, 0], activity_pca[:, 1],
-                   alpha=0.6, linewidth=1.5, color=colors[idx])
+                   alpha=0.4, linewidth=1.5, color='black')
 
-            # Mark start
+            # Mark start (Ready)
             ax.scatter(activity_pca[0, 0], activity_pca[0, 1],
                       s=50, color='green', marker='o', alpha=0.8, zorder=5)
 
-            # Mark end
+            # Mark Set cue (approximate at 1/4 through trial)
+            set_idx = n_time // 4
+            ax.scatter(activity_pca[set_idx, 0], activity_pca[set_idx, 1],
+                      s=50, color='blue', marker='D', alpha=0.8, zorder=5)
+
+            # Mark end (Go)
             ax.scatter(activity_pca[-1, 0], activity_pca[-1, 1],
                       s=50, color='red', marker='s', alpha=0.8, zorder=5)
 
@@ -247,8 +217,9 @@ def plot_neural_trajectories(trial_data, output_path='images/readysetgo_trajecto
 
         # Add legend to first plot
         if idx == 0:
-            ax.scatter([], [], s=50, color='green', marker='o', label='Start (Ready)')
-            ax.scatter([], [], s=50, color='red', marker='s', label='End (Go)')
+            ax.scatter([], [], s=50, color='green', marker='o', label='Ready')
+            ax.scatter([], [], s=50, color='orange', marker='D', label='Set')
+            ax.scatter([], [], s=50, color='red', marker='s', label='Go')
             ax.legend(loc='upper right', fontsize=9)
 
     plt.suptitle('Neural Trajectories in PCA Space (10 trials)',
@@ -273,6 +244,7 @@ def plot_activity_heatmaps(trial_data, trial_idx=0,
         ax = axes[idx]
 
         activity = trial_data[name]['activities'][trial_idx]
+        n_time = activity.shape[0]
 
         # Plot heatmap
         im = ax.imshow(activity.T, aspect='auto', cmap='viridis',
@@ -281,6 +253,36 @@ def plot_activity_heatmaps(trial_data, trial_idx=0,
         ax.set_xlabel('Time Step', fontsize=10)
         ax.set_ylabel('Neuron Index', fontsize=10)
         ax.set_title(f'{name} RNN', fontsize=12, fontweight='bold')
+
+        # Extract actual Set and Go times from trial info if available
+        # trial_info is a dict with keys:
+        #   'measure' = Ready→Set interval (ms)
+        #   'production' = Set→Go interval (ms)
+        #   'gain' = production / measure ratio
+        if 'trial_info' in trial_data[name]:
+            trial_info = trial_data[name]['trial_info'][trial_idx]
+            measure = trial_info.get('measure', None)  # Ready→Set interval in ms
+            production = trial_info.get('production', None)  # Set→Go interval in ms
+
+            # Convert from ms to timesteps (dt=20ms)
+            dt = 20
+            if measure is not None:
+                set_marker = int(measure / dt)  # Set cue at end of measure period
+            else:
+                set_marker = n_time // 4
+
+            if measure is not None and production is not None:
+                go_marker = int((measure + production) / dt)  # Go cue at measure + production
+            else:
+                go_marker = 3 * n_time // 4
+        else:
+            # Fall back to approximations if trial_info not available
+            set_marker = n_time // 4
+            go_marker = 3 * n_time // 4
+
+        ax.axvline(set_marker, color='red', linestyle='--', linewidth=2, alpha=0.9, label='Set')
+        ax.axvline(go_marker, color='white', linestyle='--', linewidth=2, alpha=0.9, label='Go')
+        ax.legend(loc='upper right', fontsize=9)
 
         # Add colorbar
         plt.colorbar(im, ax=ax, label='Activity')
@@ -339,47 +341,77 @@ def plot_ramping_activity(trial_data, output_path='images/readysetgo_ramping.png
     plt.close()
 
 
-def plot_timing_accuracy(trial_data, env, output_path='images/readysetgo_timing.png'):
+def plot_timing_accuracy(trial_data, env, output_path='images/readysetgo_timing.png',
+                         go_action_idx=None):
     """Analyze and plot timing accuracy across models."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    if go_action_idx is None:
+        go_action_idx = infer_go_action_index(env, trial_data)
 
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
     model_names = ['Vanilla', 'Leaky', 'Leaky+FA', 'Bio-Realistic']
 
-    for idx, name in enumerate(model_names):
+    all_target_times = []
+    all_errors = []
+
+    # First pass: collect all data to determine common bin range
+    model_data = {}
+    for name in model_names:
         produced_times = []
         target_times = []
 
         for trial_idx in range(len(trial_data[name]['outputs'])):
             output = trial_data[name]['outputs'][trial_idx]
-            target = trial_data[name]['targets'][trial_idx]
+            target = np.asarray(trial_data[name]['targets'][trial_idx], dtype=int)
 
-            # Find when model produces Go response
-            predictions = np.argmax(output, axis=1)
-            go_pred = np.where(predictions > 0)[0]
-            produced_time = go_pred[0] if len(go_pred) > 0 else len(output)
+            produced_idx = detect_go_time(output, go_action_idx)
+            produced_time = produced_idx
 
-            # Find target Go time
-            target_go = np.where(target > 0)[0]
-            target_time = target_go[0] if len(target_go) > 0 else len(target)
+            target_go = np.where(target == go_action_idx)[0]
+            target_time = int(target_go[0]) if len(target_go) > 0 else len(target)
 
             produced_times.append(produced_time * env.dt)
             target_times.append(target_time * env.dt)
 
         produced_times = np.array(produced_times)
         target_times = np.array(target_times)
+        errors = produced_times - target_times
 
-        # Scatter plot
+        model_data[name] = {
+            'produced': produced_times,
+            'target': target_times,
+            'errors': errors
+        }
+
+        all_target_times.extend(target_times.tolist())
+        all_errors.extend(errors.tolist())
+
+    # Determine common bin edges with fixed width for all models
+    all_errors = np.array(all_errors)
+    error_min, error_max = all_errors.min(), all_errors.max()
+    bin_width = 50  # Fixed bin width in ms for direct comparison
+    bins = np.arange(error_min, error_max + bin_width, bin_width)
+
+    # Second pass: plot with common bin width
+    for idx, name in enumerate(model_names):
+        produced_times = model_data[name]['produced']
+        target_times = model_data[name]['target']
+        errors = model_data[name]['errors']
+
+        mean_error = np.mean(errors)
+        std_error = np.std(errors)
+
+        # Scatter plot without stats
         ax1.scatter(target_times, produced_times, alpha=0.5, s=30,
                    color=colors[idx], label=name)
 
-        # Error distribution
-        errors = produced_times - target_times
-        ax2.hist(errors, bins=20, alpha=0.5, color=colors[idx], label=name)
+        # Error distribution with stats in legend using common bin edges
+        ax2.hist(errors, bins=bins, alpha=0.5, color=colors[idx],
+                label=f'{name} (μ={mean_error:.1f}ms, σ={std_error:.1f}ms)')
 
     # Ideal line
-    max_time = max([max(trial_data[name]['targets'][i]) for name in model_names
-                    for i in range(len(trial_data[name]['targets']))]) * env.dt * 1.1
+    max_time = max(all_target_times) * 1.1 if all_target_times else env.dt * trial_data[model_names[0]]['outputs'][0].shape[0]
     ax1.plot([0, max_time], [0, max_time], 'k--', linewidth=2, label='Perfect timing')
 
     ax1.set_xlabel('Target Time (ms)', fontsize=11)
@@ -445,6 +477,142 @@ def plot_firing_rate_comparison(trial_data, output_path='images/readysetgo_firin
     plt.close()
 
 
+def compute_performance_metrics(trial_data, env, timing_tolerance=40.0, sparsity_threshold=0.05,
+                                go_action_idx=None):
+    """Compute quantitative metrics for table in the report."""
+    dt = env.dt
+    model_names = ['Vanilla', 'Leaky', 'Leaky+FA', 'Bio-Realistic']
+    metrics = {}
+
+    if go_action_idx is None:
+        go_action_idx = infer_go_action_index(env, trial_data)
+
+    for name in model_names:
+        produced_times = []
+        target_times = []
+
+        for trial_idx in range(len(trial_data[name]['outputs'])):
+            output = trial_data[name]['outputs'][trial_idx]
+            target = np.asarray(trial_data[name]['targets'][trial_idx], dtype=int)
+
+            produced_idx = detect_go_time(output, go_action_idx)
+            target_go = np.where(target == go_action_idx)[0]
+            target_time = int(target_go[0]) if len(target_go) > 0 else len(target)
+
+            produced_times.append(produced_idx * dt)
+            target_times.append(target_time * dt)
+
+        produced_times = np.array(produced_times)
+        target_times = np.array(target_times)
+        errors = produced_times - target_times
+
+        # Accuracy = fraction of trials with timing error within tolerance (ms)
+        accuracy = np.mean(np.abs(errors) <= timing_tolerance)
+        mean_abs_error = np.mean(np.abs(errors))
+
+        # Activity statistics
+        all_activities = np.concatenate(trial_data[name]['activities'], axis=0)
+        mean_activity = np.mean(np.abs(all_activities))
+        sparsity = np.mean(np.abs(all_activities) < sparsity_threshold)
+
+        metrics[name] = {
+            'accuracy': float(accuracy),
+            'mean_abs_timing_error': float(mean_abs_error),
+            'mean_signed_error': float(np.mean(errors)),
+            'std_timing_error': float(np.std(errors)),
+            'mean_activity': float(mean_activity),
+            'sparsity': float(sparsity)
+        }
+
+    return metrics
+
+
+def print_performance_metrics(metrics):
+    """Pretty-print metrics for quick copy into the LaTeX table."""
+    print("\nPerformance summary (timing accuracy within ±40 ms):")
+    header = "{:<15s} {:>10s} {:>12s} {:>12s} {:>12s} {:>15s} {:>12s}"
+    row = "{:<15s} {:>10.3f} {:>12.2f} {:>12.2f} {:>12.2f} {:>15.4f} {:>12.3f}"
+    print(header.format("Model", "Accuracy", "|Error|", "Error μ", "Error σ",
+                        "Mean Activity", "Sparsity"))
+    for name, stats in metrics.items():
+        print(row.format(
+            name,
+            stats['accuracy'],
+            stats['mean_abs_timing_error'],
+            stats['mean_signed_error'],
+            stats['std_timing_error'],
+            stats['mean_activity'],
+            stats['sparsity']))
+
+
+def detect_go_time(logits, go_action_idx):
+    """Return earliest timestep where Go is the predicted action."""
+    logits = np.asarray(logits)
+    preds = np.argmax(logits, axis=1)
+
+    first = np.where(preds == go_action_idx)[0]
+    if len(first) > 0:
+        return int(first[0])
+
+    go_channel = logits[:, go_action_idx]
+    return int(np.argmax(go_channel))
+
+
+def inspect_go_predictions(trial_data, go_action_idx, num_trials=3):
+    """Print detection diagnostics for first few trials."""
+    model_names = ['Vanilla', 'Leaky', 'Leaky+FA', 'Bio-Realistic']
+    print("\nGo detection diagnostics (argmax-based):")
+    for trial_idx in range(min(num_trials, len(trial_data[model_names[0]]['targets']))):
+        target = np.asarray(trial_data[model_names[0]]['targets'][trial_idx], dtype=int)
+        target_go = np.where(target == go_action_idx)[0]
+        target_time = int(target_go[0]) if len(target_go) > 0 else None
+        print(f"\nTrial {trial_idx+1}: target Go index = {target_time}")
+        for name in model_names:
+            logits = trial_data[name]['outputs'][trial_idx]
+            preds = np.argmax(logits, axis=1)
+            probs = np.exp(logits - logits.max(axis=1, keepdims=True))
+            probs /= probs.sum(axis=1, keepdims=True)
+            go_probs = probs[:, go_action_idx]
+            det = detect_go_time(logits, go_action_idx)
+            first_pred = np.where(preds == go_action_idx)[0]
+            print(f"  {name:12s} detect={det:3d} first_pred={first_pred[0] if len(first_pred)>0 else 'none'} "
+                  f"max_prob={go_probs.max():.2f}")
+
+
+def compute_pca_statistics(trial_data, num_trials=20):
+    """Return explained variance for first two PCs."""
+    stats = {}
+    model_names = ['Vanilla', 'Leaky', 'Leaky+FA', 'Bio-Realistic']
+    for name in model_names:
+        activities = np.concatenate(trial_data[name]['activities'][:num_trials], axis=0)
+        pca = PCA(n_components=2)
+        pca.fit(activities)
+        stats[name] = {
+            'pc1_var': float(pca.explained_variance_ratio_[0]),
+            'pc2_var': float(pca.explained_variance_ratio_[1])
+        }
+    return stats
+
+
+def compute_ramp_slopes(trial_data, num_trials=50):
+    """Compute slope of average population activity."""
+    slopes = {}
+    model_names = ['Vanilla', 'Leaky', 'Leaky+FA', 'Bio-Realistic']
+    for name in model_names:
+        trial_slopes = []
+        for trial_idx in range(min(num_trials, len(trial_data[name]['activities']))):
+            activity = trial_data[name]['activities'][trial_idx]
+            mean_trace = np.mean(activity, axis=1)
+            time = np.linspace(0, 1, len(mean_trace))
+            coeffs = np.polyfit(time, mean_trace, 1)
+            trial_slopes.append(coeffs[0])
+        slopes[name] = {
+            'mean_slope': float(np.mean(trial_slopes)),
+            'std_slope': float(np.std(trial_slopes))
+        }
+    return slopes
+
+
 if __name__ == "__main__":
     print("="*70)
     print("ReadySetGo Task Analysis")
@@ -461,12 +629,43 @@ if __name__ == "__main__":
     print("="*70)
 
     # Generate all plots
-    plot_task_structure(env, models)
+    go_action_idx = infer_go_action_index(env, trial_data)
+    print(f"Detected Go action index: {go_action_idx}")
+    actions = getattr(env, 'actions', None)
+    if actions is not None:
+        print(f"Action labels: {actions}")
+
+    plot_task_structure(env, models=None, go_action_idx=go_action_idx)
     plot_neural_trajectories(trial_data)
-    plot_activity_heatmaps(trial_data, trial_idx=5)
+
+    # Use checkpoint data for heatmap (has trial_info with actual times)
+    checkpoint_trial_data = {
+        'Vanilla': checkpoint['vanilla_data'],
+        'Leaky': checkpoint['leaky_data'],
+        'Leaky+FA': checkpoint['leaky_fa_data'],
+        'Bio-Realistic': checkpoint['bio_data']
+    }
+    plot_activity_heatmaps(checkpoint_trial_data, trial_idx=5)
+
     plot_ramping_activity(trial_data)
-    plot_timing_accuracy(trial_data, env)
+    plot_timing_accuracy(trial_data, env, go_action_idx=go_action_idx)
     plot_firing_rate_comparison(trial_data)
+
+    # Summary metrics for coursework_report.tex tables
+    metrics = compute_performance_metrics(trial_data, env, go_action_idx=go_action_idx)
+    print_performance_metrics(metrics)
+    inspect_go_predictions(trial_data, go_action_idx)
+
+    pca_stats = compute_pca_statistics(trial_data)
+    ramp_stats = compute_ramp_slopes(trial_data)
+
+    print("\nPCA explained variance (PC1/PC2):")
+    for name, stats in pca_stats.items():
+        print(f"{name:<15s} {stats['pc1_var']*100:5.1f}% / {stats['pc2_var']*100:5.1f}%")
+
+    print("\nMean ramp slopes (activity vs normalised time):")
+    for name, stats in ramp_stats.items():
+        print(f"{name:<15s} slope={stats['mean_slope']:.4f} ± {stats['std_slope']:.4f}")
 
     print("\n" + "="*70)
     print("Analysis Complete!")

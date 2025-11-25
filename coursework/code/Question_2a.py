@@ -3,36 +3,65 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import logging
+import warnings
+import gymnasium as gym
 import neurogym as ngym
+from neurogym.utils.data import Dataset
 from plots import plot_question_2a_results
 
 logging.getLogger('matplotlib.font_manager').setLevel(level=logging.CRITICAL)
-
+warnings.filterwarnings("ignore")
 
 class FeedbackAlignmentLinear(nn.Module):
     def __init__(self, in_features, out_features):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        
+
         self.weight = nn.Parameter(torch.Tensor(out_features, in_features))
         self.bias = nn.Parameter(torch.Tensor(out_features))
-        self.weight_feedback = nn.Parameter(torch.randn(out_features, in_features), requires_grad=False)
-        
+
+        stdv = 1. / np.sqrt(in_features)
+        self.weight_feedback = torch.FloatTensor(in_features, out_features).uniform_(-stdv, stdv)
+
         nn.init.kaiming_uniform_(self.weight, a=np.sqrt(5))
         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
         bound = 1 / np.sqrt(fan_in)
         nn.init.uniform_(self.bias, -bound, bound)
-    
+
     def forward(self, input):
-        output = nn.functional.linear(input, self.weight, self.bias)
+        return FeedbackAlignmentFunction.apply(input, self.weight, self.bias, self.weight_feedback, self.training)
 
-        if self.training and input.requires_grad:
-            def backward_hook(grad):
-                return grad.mm(self.weight_feedback)
-            input.register_hook(backward_hook)
 
+class FeedbackAlignmentFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, weight, bias, weight_feedback, training):
+        output = input.mm(weight.t())
+        if bias is not None:
+            output += bias.unsqueeze(0).expand_as(output)
+        ctx.save_for_backward(input, weight, bias)
+        ctx.weight_feedback = weight_feedback
+        ctx.training = training
         return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, weight, bias = ctx.saved_tensors
+        grad_input = grad_weight = grad_bias = None
+
+        if ctx.needs_input_grad[0]:
+            if ctx.training:
+                grad_input = grad_output.mm(ctx.weight_feedback.to(grad_output.device))
+            else:
+                grad_input = grad_output.mm(weight)
+
+        if ctx.needs_input_grad[1]:
+            grad_weight = grad_output.t().mm(input)
+
+        if bias is not None and ctx.needs_input_grad[2]:
+            grad_bias = grad_output.sum(0)
+
+        return grad_input, grad_weight, grad_bias, None, None
 
 
 class VanillaRNN(nn.Module):
@@ -119,16 +148,16 @@ class LeakyRNNFeedbackAlignment(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.tau = tau
-        
+
         if dt is None:
             alpha = 1
         else:
             alpha = dt / self.tau
-        
+
         self.alpha = alpha
         self.oneminusalpha = 1 - alpha
         self._sigma_rec = np.sqrt(2 * alpha) * sigma_rec
-        
+
         self.input2h = FeedbackAlignmentLinear(input_size, hidden_size)
         self.h2h = FeedbackAlignmentLinear(hidden_size, hidden_size)
         
@@ -163,13 +192,12 @@ class LeakyRNNFeedbackAlignment(nn.Module):
 
 class BiologicallyRealisticRNN(nn.Module):
     def __init__(self, input_size, hidden_size, dt=None, tau=100, sigma_rec=0,
-                 exc_ratio=0.8, sparsity=0.2, **kwargs):
+                 exc_ratio=0.8, **kwargs):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.tau = tau
         self.exc_ratio = exc_ratio
-        self.sparsity = sparsity
 
         if dt is None:
             alpha = 1
@@ -189,11 +217,6 @@ class BiologicallyRealisticRNN(nn.Module):
         self.dale_mask[n_exc:] = -1
         self.dale_mask = nn.Parameter(self.dale_mask.unsqueeze(0), requires_grad=False)
 
-        # Sparse connectivity mask
-        sparse_mask = torch.rand(hidden_size, hidden_size) < sparsity
-        sparse_mask.fill_diagonal_(True)
-        self.sparse_mask = nn.Parameter(sparse_mask.float(), requires_grad=False)
-
     def init_hidden(self, input):
         batch_size = input.shape[1]
         return (torch.zeros(batch_size, self.hidden_size).to(input.device),
@@ -204,8 +227,6 @@ class BiologicallyRealisticRNN(nn.Module):
 
         # Apply Dale's principle: rectify then apply sign
         h2h_weight = torch.relu(self.h2h.weight) * self.dale_mask
-        # Apply sparsity mask
-        h2h_weight = h2h_weight * self.sparse_mask
 
         total_input = self.input2h(input) + nn.functional.linear(output, h2h_weight, self.h2h.bias)
         state = state * self.oneminusalpha + total_input * self.alpha
@@ -254,15 +275,20 @@ class Net(nn.Module):
         return out, rnn_activity
 
 
-def train_model(net, dataset, num_steps=5000, lr=0.001, print_step=200, beta_L2=0.0):
+def train_model(net, dataset, num_steps=5000, lr=0.001, print_step=50,
+                beta_L1=0.0, beta_L2=0.0, class_weights=None):
     optimizer = optim.Adam(net.parameters(), lr=lr)
-    criterion = nn.CrossEntropyLoss()
     device = next(net.parameters()).device
+    if class_weights is not None:
+        criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+    else:
+        criterion = nn.CrossEntropyLoss()
 
     loss_history = []
     running_loss = 0.0
     running_task_loss = 0.0
-    running_reg_loss = 0.0
+    running_l1_loss = 0.0
+    running_l2_loss = 0.0
 
     for i in range(num_steps):
         inputs, labels = dataset()
@@ -275,34 +301,44 @@ def train_model(net, dataset, num_steps=5000, lr=0.001, print_step=200, beta_L2=
 
         # Task loss
         task_loss = criterion(output, labels)
+        loss = task_loss
 
-        # L2 regularization on firing rates (biological realism)
+        # L1 regularization on weights (sparse connectivity)
+        l1_loss = torch.tensor(0.0)
+        if beta_L1 > 0:
+            l1_loss = beta_L1 * sum(torch.sum(torch.abs(p)) for p in net.parameters())
+            loss = loss + l1_loss
+
+        # L2 regularization on firing rates (low firing rates)
+        l2_loss = torch.tensor(0.0)
         if beta_L2 > 0:
-            firing_rate_loss = beta_L2 * torch.mean(activity ** 2)
-            loss = task_loss + firing_rate_loss
-        else:
-            firing_rate_loss = torch.tensor(0.0)
-            loss = task_loss
+            l2_loss = beta_L2 * torch.mean(activity ** 2)
+            loss = loss + l2_loss
 
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(net.parameters(), 0.5)
         optimizer.step()
 
         running_loss += loss.item()
         running_task_loss += task_loss.item()
-        running_reg_loss += firing_rate_loss.item()
+        running_l1_loss += l1_loss.item()
+        running_l2_loss += l2_loss.item()
 
         if i % print_step == (print_step - 1):
             avg_loss = running_loss / print_step
             avg_task = running_task_loss / print_step
-            avg_reg = running_reg_loss / print_step
-            if beta_L2 > 0:
-                print(f'Step {i+1:5d}, Loss: {avg_loss:.4f} (Task: {avg_task:.4f}, L2: {avg_reg:.4f})')
+            avg_l1 = running_l1_loss / print_step
+            avg_l2 = running_l2_loss / print_step
+            if beta_L1 > 0 or beta_L2 > 0:
+                print(f'Step {i+1:5d}, Loss: {avg_loss:.4f} (Task: {avg_task:.4f}, L1: {avg_l1:.4f}, L2: {avg_l2:.4f})')
             else:
                 print(f'Step {i+1:5d}, Loss: {avg_loss:.4f}')
-            loss_history.append(avg_loss)
+            # Save task loss only for fair comparison across models
+            loss_history.append(avg_task)
             running_loss = 0.0
             running_task_loss = 0.0
-            running_reg_loss = 0.0
+            running_l1_loss = 0.0
+            running_l2_loss = 0.0
 
     return loss_history
 
@@ -332,7 +368,6 @@ def evaluate_model(net, env, num_trials=500):
             trial_data['activities'].append(rnn_activity[:, 0, :].detach().cpu().numpy())
             trial_data['trial_info'].append(env.unwrapped.trial)
             trial_data['correct'].append(correct)
-    
     performance = np.mean(trial_data['correct'])
     return performance, trial_data
 
@@ -347,7 +382,7 @@ if __name__ == "__main__":
     print("\n[1] Setting up NeuroGym task...")
     task = 'ReadySetGo-v0'
     kwargs = {'dt': 20}
-    seq_len = 100
+    seq_len = 300
     
     dataset = ngym.Dataset(task, env_kwargs=kwargs, batch_size=16, seq_len=seq_len)
     env = dataset.env
@@ -361,7 +396,11 @@ if __name__ == "__main__":
     print(f"Input size: {input_size}")
     print(f"Output size: {output_size}")
     print(f"Hidden size: {hidden_size}")
-    
+
+    common_lr = 0.0005
+    common_noise = 0.15
+    class_weights = torch.tensor([0.1, 1.0], dtype=torch.float32).to(device)
+
     print("\n[2] Training Vanilla RNN...")
     print("-"*70)
     net_vanilla = Net(
@@ -370,9 +409,10 @@ if __name__ == "__main__":
         output_size=output_size,
         model_type='vanilla'
     ).to(device)
-    
-    loss_vanilla = train_model(net_vanilla, dataset, num_steps=5000)
-    
+
+    loss_vanilla = train_model(net_vanilla, dataset, num_steps=4000, lr=common_lr,
+                               class_weights=class_weights)
+
     print("\n[3] Training Leaky RNN (τ=100, decay, noise)...")
     print("-"*70)
     net_leaky = Net(
@@ -382,10 +422,11 @@ if __name__ == "__main__":
         model_type='leaky',
         dt=env.dt,
         tau=100,
-        sigma_rec=0.15
+        sigma_rec=common_noise
     ).to(device)
-    
-    loss_leaky = train_model(net_leaky, dataset, num_steps=5000)
+
+    loss_leaky = train_model(net_leaky, dataset, num_steps=4000, lr=common_lr,
+                             class_weights=class_weights)
 
     print("\n[3b] Training Leaky RNN with Feedback Alignment (biologically realistic)...")
     print("-"*70)
@@ -396,12 +437,13 @@ if __name__ == "__main__":
         model_type='leaky_fa',
         dt=env.dt,
         tau=100,
-        sigma_rec=0.15
+        sigma_rec=common_noise
     ).to(device)
 
-    loss_leaky_fa = train_model(net_leaky_fa, dataset, num_steps=5000)
+    loss_leaky_fa = train_model(net_leaky_fa, dataset, num_steps=4000, lr=common_lr,
+                                class_weights=class_weights)
 
-    print("\n[3c] Training Biologically Realistic RNN (FA + Dale + Sparse + L2)...")
+    print("\n[3c] Training Biologically Realistic RNN (FA + Dale + L1 + L2)...")
     print("-"*70)
     net_bio = Net(
         input_size=input_size,
@@ -410,12 +452,13 @@ if __name__ == "__main__":
         model_type='bio_realistic',
         dt=env.dt,
         tau=100,
-        sigma_rec=0.15,
-        exc_ratio=0.8,
-        sparsity=0.2
+        sigma_rec=common_noise,
+        exc_ratio=0.8
     ).to(device)
 
-    loss_bio = train_model(net_bio, dataset, num_steps=5000, beta_L2=0.01)
+    loss_bio = train_model(net_bio, dataset, num_steps=4000, lr=common_lr,
+                           beta_L1=0.0005, beta_L2=0.01,
+                           class_weights=class_weights)
 
     print("\n[4] Evaluating models...")
     print("-"*70)
@@ -460,7 +503,7 @@ if __name__ == "__main__":
         'leaky_data': data_leaky,
         'leaky_fa_data': data_leaky_fa,
         'bio_data': data_bio,
-        'env_config': {'dt': env.dt, 'task': task}
+        'env_config': {'dt': env.dt, 'task': task, 'seq_len': seq_len}
     }, 'checkpoints/question_2a_models_and_data.pt')
     print("Saved: checkpoints/question_2a_models_and_data.pt")
     
@@ -477,8 +520,8 @@ if __name__ == "__main__":
     print("2. Leaky RNN: τ=100, decay, noise + standard backprop")
     print("3. Leaky RNN + FA: τ=100, decay, noise + random backprop weights")
     print("   → Feedback Alignment: biologically realistic learning")
-    print("4. Biologically Realistic RNN: FA + Dale's principle + Sparse + L2")
+    print("4. Biologically Realistic RNN: FA + Dale's principle + L1 + L2")
     print("   → Dale's principle: 80% excitatory, 20% inhibitory neurons")
-    print("   → Sparse connectivity: 20% connection probability")
+    print("   → L1 regularization: sparse weights (β=0.0005)")
     print("   → L2 regularization: low firing rates (β=0.01)")
     print("="*70)

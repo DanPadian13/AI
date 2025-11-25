@@ -1,0 +1,90 @@
+\documentclass[tikz,border=10pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds}
+
+\begin{document}
+
+\tikzset{
+    model/.style={rectangle, rounded corners, minimum width=3.5cm, minimum height=1.2cm,
+                  text centered, draw=black, fill=blue!10, font=\bfseries},
+    constraint/.style={rectangle, rounded corners, minimum width=3.5cm, minimum height=0.8cm,
+                       text centered, draw=black, fill=green!20, font=\small},
+    arrow/.style={-Stealth, thick},
+    plus/.style={circle, draw=black, fill=orange!30, font=\Large\bfseries,
+                 minimum size=0.8cm}
+}
+
+\begin{tikzpicture}[node distance=1.5cm]
+
+% Model 1
+\node (model1) [model] {Model 1: Vanilla RNN};
+\node (arch1) [constraint, below=0.3cm of model1] {Standard RNN};
+\node (act1) [constraint, below=0.1cm of arch1] {tanh activation};
+
+% Plus sign
+\node (plus1) [plus, below=0.8cm of act1] {+};
+
+% Added constraints for Model 2
+\node (add2a) [constraint, below=0.3cm of plus1, fill=yellow!30] {Time constant $\tau$};
+\node (add2b) [constraint, below=0.1cm of add2a, fill=yellow!30] {ReLU activation};
+\node (add2c) [constraint, below=0.1cm of add2b, fill=yellow!30] {Recurrent noise};
+
+% Model 2
+\node (model2) [model, below=0.8cm of add2c] {Model 2: Leaky RNN};
+
+% Plus sign
+\node (plus2) [plus, below=0.5cm of model2] {+};
+
+% Added constraints for Model 3
+\node (add3) [constraint, below=0.3cm of plus2, fill=yellow!30] {Feedback Alignment};
+
+% Model 3
+\node (model3) [model, below=0.8cm of add3] {Model 3: Leaky + FA};
+
+% Plus sign
+\node (plus3) [plus, below=0.5cm of model3] {+};
+
+% Added constraints for Model 4
+\node (add4a) [constraint, below=0.3cm of plus3, fill=yellow!30] {Dale's Principle (E/I)};
+\node (add4b) [constraint, below=0.1cm of add4a, fill=yellow!30] {Sparse Connectivity (20\%)};
+\node (add4c) [constraint, below=0.1cm of add4b, fill=yellow!30] {L2 Regularization};
+
+% Model 4
+\node (model4) [model, below=0.8cm of add4c] {Model 4: Bio-Realistic};
+
+% Arrows
+\draw [arrow] (model1) -- (plus1);
+\draw [arrow] (plus1) -- (model2);
+\draw [arrow] (model2) -- (plus2);
+\draw [arrow] (plus2) -- (model3);
+\draw [arrow] (model3) -- (plus3);
+\draw [arrow] (plus3) -- (model4);
+
+% Labels on the side
+\node[anchor=west, font=\footnotesize, text width=3cm] at (7, -2.5) {
+    \textbf{Baseline:} \\
+    No biological \\
+    constraints
+};
+
+\node[anchor=west, font=\footnotesize, text width=3cm] at (7, -7) {
+    \textbf{Temporal:} \\
+    Brain-like \\
+    time constants
+};
+
+\node[anchor=west, font=\footnotesize, text width=3cm] at (7, -11) {
+    \textbf{Learning:} \\
+    Biologically \\
+    plausible gradients
+};
+
+\node[anchor=west, font=\footnotesize, text width=3cm] at (7, -16.5) {
+    \textbf{Architecture:} \\
+    Full biological \\
+    realism
+};
+
+\end{tikzpicture}
+
+\end{document}

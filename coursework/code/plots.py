@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import LogLocator, ScalarFormatter
 import torch
 import os
 import logging
@@ -34,17 +35,21 @@ def plot_question_2a_results(data_path='data/question_2a_training_data.pt',
 
     fig, ax = plt.subplots(1, 1, figsize=(8, 5))
 
-    # Learning curves
-    ax.plot(loss_vanilla, label='Vanilla', linewidth=2, color='#1f77b4')
-    ax.plot(loss_leaky, label='Leaky', linewidth=2, color='#ff7f0e')
-    ax.plot(loss_leaky_fa, label='Leaky+FA', linewidth=2, color='#2ca02c')
-    ax.plot(loss_bio, label='Bio-Realistic', linewidth=2, color='#d62728')
-    ax.set_xlabel('Training Step (×200)', fontsize=12)
-    ax.set_ylabel('Loss (log scale)', fontsize=12)
-    ax.set_yscale('log')
-    ax.set_title('Learning Curves: Progression of Biological Realism', fontsize=13, fontweight='bold')
+    # Learning curves - create x-axis with actual step numbers
+    # Losses are recorded every 50 steps
+    # Skip first value (index 0) as it starts too high
+    steps = np.arange(2, len(loss_vanilla) + 1) * 50
+
+    ax.plot(steps, loss_vanilla[1:], label='Vanilla', linewidth=1.5, color='#1f77b4')
+    ax.plot(steps, loss_leaky[1:], label='Leaky', linewidth=1.5, color='#ff7f0e')
+    ax.plot(steps, loss_leaky_fa[1:], label='Leaky+FA', linewidth=1.5, color='#2ca02c')
+    ax.plot(steps, loss_bio[1:], label='Bio-Realistic', linewidth=1.5, color='#d62728')
+    ax.set_xlabel('Training Step', fontsize=12)
+    ax.set_ylabel('Task Loss', fontsize=12)
+
+    ax.set_title('Learning Curves: Task Loss Across Models', fontsize=13, fontweight='bold')
     ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3, which='both')
+    ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
 

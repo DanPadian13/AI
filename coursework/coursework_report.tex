@@ -1,0 +1,573 @@
+\documentclass[11pt]{article}
+
+% First load extension packages
+\usepackage[a4paper,margin=25mm]{geometry}    % page layout
+\usepackage{setspace} \onehalfspacing         % line spacing
+\usepackage{amsfonts,amssymb,amsmath}         % useful maths extensions
+\usepackage{graphicx}                         % graphics import
+\usepackage{siunitx}                          % easy SI units
+\usepackage{cite}                             % better citations
+\usepackage{hyperref}                         % hyperlinking
+\usepackage{float}
+\usepackage{adjustbox}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{makecell}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{Z}{>{\raggedright\arraybackslash}X}
+
+% Change paragraph indentation
+\setlength{\parskip}{10pt}
+\setlength{\parindent}{0pt}
+
+% User-defined commands
+\newcommand{\diff}[2]{\frac{\mathrm{d}{#1}}{\mathrm{d}{#2}}}
+\newcommand{\ddiff}[2]{\frac{\mathrm{d}^2{#1}}{\mathrm{d}{#2}^2}}
+\newcommand{\pdiff}[2]{\frac{\partial{#1}}{\partial{#2}}}
+\newcommand{\pddiff}[2]{\frac{\partial^2{#1}}{\partial{#2}^2}}
+\newcommand{\pdiffdiff}[3]{\frac{\partial^2{#1}}{\partial{#2}\partial{#3}}}
+\renewcommand{\vec}[1]{\boldsymbol{#1}}
+\newcommand{\Idx}{\;\mathrm{d}x}
+\newcommand{\Real}{\mathbb{R}}
+\newcommand{\Complex}{\mathbb{C}}
+\newcommand{\Rational}{\mathbb{Q}}
+\newcommand{\Integer}{\mathbb{Z}}
+\newcommand{\Natural}{\mathbb{N}}
+
+% topmatter
+\title{Cognitive AI Coursework:  Integrating brain-inspired constraints in neural network models.}
+\author{Dan Padian}
+\date{\today}
+
+% main body
+\begin{document}
+\maketitle
+
+\tableofcontents
+\newpage
+
+%=============================================================================
+% QUESTION 1: CRITICAL DISCUSSION (Max 4 pages total for a, b, c, d)
+%=============================================================================
+\section{Question 1: Brain-Inspired Constraints in Neural Networks}
+\label{sec:question1}
+
+% Critically discuss how changes to architecture, cost function, learning rule,
+% and other factors can impose brain-like constraints on ANNs.
+% Use equations and figures where helpful.
+% Max 4 pages TOTAL for all subsections combined.
+
+%-----------------------------------------------------------------------------
+\subsection{Architecture [5 marks]}
+\label{sec:q1_architecture}
+
+Architectural modifications can impose brain-like constraints by altering the fundamental structure and dynamics of artificial neural networks. Unlike standard ANNs, biologically-inspired architectures sacrifice some flexibility to capture key features of neural circuits.
+
+\textbf{Leaky RNN Dynamics with Time Constants.}
+Standard RNNs update their hidden state in discrete steps, which does not fully capture the gradual integration of information observed in biological neurons. Leaky RNNs modify this by introducing a membrane time constant $\tau$ that controls how quickly activity decays relative to how much new input is integrated:
+\begin{equation}
+a(t) = a(t-1) + \frac{\Delta t}{\tau}\Big[-a(t-1) + f\big(W_{x \to a} x(t) + W_{a \to a} a(t-1) + b_1\big)\Big].
+\end{equation}
+Here, $\tau$ sets the effective timescale of the units: smaller $\tau$ values make the network respond rapidly to new inputs, whilst larger $\tau$ values promote slow integration and memory over longer intervals. This allows different parts of the network to operate on distinct temporal scales, loosely mirroring how sensory areas process fast-changing signals whilst higher-order regions support longer-term integration for working memory and decision-making.
+
+\textbf{Dale's Principle: Excitatory/Inhibitory Separation.}
+Dale's law states that a neuron is either exclusively excitatory or inhibitory at all its outputs \cite{Song2016}. This can be enforced by constraining weight signs after each learning step:
+\begin{equation}
+W^{\text{rec}} = W^{\text{rec},+} \odot D,
+\end{equation}
+where $W^{\text{rec},+}$ is the rectified weight matrix and $D$ is a diagonal matrix with $D_{ii} = +1$ for excitatory units and $D_{ii} = -1$ for inhibitory units. Typically, 80\% of units are excitatory and 20\% inhibitory, matching cortical ratios. This constraint is critical because it imposes excitatory/inhibitory balance---a fundamental organising principle of cortical dynamics. By preventing individual neurons from switching between excitation and inhibition, the network must achieve stable recurrent computation through population-level balance, much like the brain.
+
+\textbf{Sparse Connectivity.}
+Biological neural networks exhibit sparse connectivity: cortical neurons connect to only a small fraction of potential targets (~20\%). This can be imposed via binary masks:
+\begin{equation}
+W^{\text{rec}}_{\text{sparse}} = W^{\text{rec}}_{\text{dense}} \odot M,
+\end{equation}
+where $M_{ij} \in \{0,1\}$ specifies which connections exist. Sparse connectivity reduces free parameters and improves interpretability by making information pathways explicit but, more importantly, forces the network to develop structured representations using limited connectivity---mirroring the anatomical constraints faced by real neural circuits.
+
+In summary, these architectural modifications capture fundamental properties of biological computation: temporal integration via membrane time constants, stable dynamics through excitatory/inhibitory balance, and structured information flow via sparse wiring.
+
+% Discuss architectural constraints that make networks more brain-like:
+% - Leaky integration / time constants
+% - Dale's principle (E/I separation)
+% - Sparse connectivity
+% - Recurrent vs feedforward
+% - Cell types and structured connectivity
+
+% Examples:
+% - Leaky RNN dynamics
+% - E/I neuron separation
+% - Sparse masks
+
+% References: Song et al., 2016; Liu & Wang, 2024; course notes Week 4B
+
+%-----------------------------------------------------------------------------
+\subsection{Cost Function [5 marks]}
+\label{sec:q1_cost}
+
+The cost function is where biological constraints can be imposed most directly, as it explicitly dictates which network configurations are preferred during optimisation. Cost function modifications steer learning towards biologically plausible operating regimes through regularisation penalties.
+
+\textbf{L1 Regularisation on Weights and L2 Regularisation on Firing Rates.}
+Biological neural networks exhibit sparse connectivity, with cortical neurons connecting to only a small fraction (~20\%) of potential targets, and they operate with relatively low firing rates (often $<20$ Hz) due to metabolic constraints. These properties can be encouraged in artificial networks via complementary regularisation terms. First, L1 regularisation on synaptic weights promotes sparse connectivity \cite{yang2019}:
+\begin{equation}
+J = J_{\text{task}} + \beta_{\text{L1,weight}} \sum_{i,j} |w_{i \to j}|.
+\end{equation}
+The absolute-value penalty drives many weights towards exactly zero, yielding connectivity matrices in which only essential connections survive optimisation. Unlike architectural sparsity masks (Section \ref{sec:q1_architecture}), this allows the network to \emph{learn} which connections to prune based on task demands, with $\beta_{\text{L1,weight}}$ tuning the sparsity--performance trade-off. Second, L2 regularisation on firing rates captures the cost of neural activity:
+\begin{equation}
+J = J_{\text{task}} + \beta_{\text{L2,rates}} \sum_{t=1}^{T} \sum_{i=1}^{N} a_{i,t}^2.
+\end{equation}
+Here, high-amplitude activity is penalised quadratically, encouraging distributed but low-firing representations. This smooths hidden-state trajectories and stabilises recurrent dynamics by preventing explosive activity, effectively pushing networks to solve tasks with minimal neural energy expenditure.
+
+\textbf{Distance-Weighted Connectivity Penalty.}
+Anatomical studies reveal that connection probability decays exponentially with physical distance between neurons \cite{achterberg2023}. This spatial constraint can be imposed by embedding units in Euclidean space and penalising the product of weight magnitude and distance:
+\begin{equation}
+J = J_{\text{task}} + \beta_{\text{WD}} \sum_{i,j} |w_{i \to j}| \times |d_{i \to j}|,
+\end{equation}
+where $d_{i \to j}$ is spatial distance. This penalty encourages predominantly local connectivity whilst allowing sparse long-range connections when functionally necessary---matching cortical wiring patterns where most connections are local but rare long-range projections support inter-area communication.
+
+\textbf{Critical Trade-offs.}
+Each regularisation term introduces trade-offs. Excessive L1 sparsity can prune connections essential for task performance, whilst weak penalties do little to enforce biological realism. Strong L2 penalties on firing rates may suppress transient responses needed for rapid processing and exacerbate vanishing gradients. Distance-based penalties depend sensitively on the choice of spatial embedding and decay profile. In practice, the $\beta$ hyperparameters must be tuned to balance biological plausibility against task performance for a given architecture and task.
+
+Taken together, these cost-function terms provide complementary levers for steering networks towards biologically plausible regimes---enforcing sparse wiring, low metabolic cost, and realistic spatial structure---whilst remaining compatible with gradient-based optimisation.
+% Discuss how modifying the loss function imposes biological constraints:
+% - L1 regularization (sparse weights)
+% - L2 regularization (low firing rates)
+% - Distance-based penalties
+% - Reward-based objectives (RL)
+% - Multi-objective optimization
+
+% Examples with equations:
+% J = J_task + beta * sum(|weights|)  [L1]
+% J = J_task + beta * sum(activity^2)  [L2]
+
+% References: Yang et al., 2019; Goudar et al., 2023; Achterberg et al., 2023
+
+%-----------------------------------------------------------------------------
+\subsection{Learning Rule [5 marks]}
+\label{sec:q1_learning}
+
+The learning rule determines how synaptic weights change in response to activity and error signals, making it central to biological plausibility. Standard backpropagation through time (BPTT) is highly effective but violates key neural principles: it requires symmetric forward and backward weights (the weight transport problem), non-local credit assignment, and separate inference and learning phases. Several biologically plausible alternatives address these constraints whilst maintaining effective learning.
+
+\textbf{Feedback Alignment: Solving Weight Transport.}
+Backpropagation routes error signals through the exact transpose of forward weights ($W^{\top}$), but biological circuits lack any known mechanism for copying synaptic strengths with perfect symmetry across distinct pathways. Feedback alignment \cite{lillicrap2016} relaxes this assumption by replacing $W^{\top}$ with a fixed, randomly initialised feedback matrix $B$:
+\begin{equation}
+\Delta W \propto B \cdot \delta \quad \text{instead of} \quad W^{\top} \delta.
+\end{equation}
+Remarkably, forward weights adapt during training so that their effective product aligns with the random feedback pathways, allowing error signals carried by $B\delta$ to approximate true gradients. This emergent alignment solves the weight transport problem without requiring biologically implausible symmetric copying. Mechanistically, synapses adjust based on local pre- and postsynaptic activity combined with a broadcast feedback signal---far more plausible than precise reciprocal connectivity.
+
+\textbf{Dendritic Error Model: Exploiting Neuronal Compartments.}
+Pyramidal neurons possess distinct dendritic compartments (apical, basal) and soma with different integration properties. The dendritic error model \cite{sacramento2018} exploits this architecture by encoding error signals in dendritic activity and forward propagation in somatic activity, both within the same neuron:
+\begin{equation}
+\frac{dW_1}{dt} = \alpha \left( g(x_2) - g(\delta_2) \right) x_1,
+\end{equation}
+where $g$ is a nonlinear function, $x_2$ is dendritic input, $\delta_2$ is the error signal, and $x_1$ is presynaptic activity. This formulation solves both the weight transport problem (no need for $W^{\top}$) and the non-local learning problem (errors and forward signals coexist in the same physical neuron) whilst remaining consistent with pyramidal cell physiology. Crucially, it requires no separate learning and inference phases: the same circuit performs both simultaneously.
+
+\textbf{Limitations and Trade-offs.}
+Each approach introduces limitations. Feedback alignment's random backward weights may impair very deep networks or fine-grained credit assignment, and alignment between $W^{\top}$ and $B$ emerges gradually, potentially slowing convergence. Dendritic error models require specific cellular architecture (distinct compartments) and may not generalise to all network types. Despite these constraints, both approaches substantially improve biological realism whilst maintaining effective learning.
+
+% Discuss biologically plausible learning rules:
+% - Weight transport problem in backprop
+% - Feedback alignment
+% - RFLO (Random Feedback Local Online)
+% - Hebbian learning
+% - STDP (Spike-Timing-Dependent Plasticity)
+% - Three-factor learning rules
+
+% Key issue: Backprop uses W^T which is biologically unrealistic
+% Solutions: Random feedback weights, local learning
+
+% References: Lillicrap et al., 2016; Murray, 2019; Whittington & Bogacz, 2019
+
+%-----------------------------------------------------------------------------
+\subsection{Other Constraints [5 marks]}
+\label{sec:q1_other}
+
+Beyond architecture, cost functions, and learning rules, several additional constraints can impose brain-like properties on neural networks. These constraints capture organisational principles observed across cortical systems.
+
+\textbf{Hierarchical Gradients of Neuronal Properties.}
+Cortical hierarchies exhibit coordinated gradients in both intrinsic neuronal properties and neuromodulatory influence, and both can be mirrored in artificial neural networks (ANNs). Along the hierarchy, early sensory areas (e.g., V1, A1) have short intrinsic time constants and low dendritic spine counts, whilst higher associative and prefrontal regions show longer time constants and much higher spine densities, with hierarchical position strongly predicting spine count ($r^2 \approx 0.90$) \cite{chaudhuri2015}. This suggests that anatomical structure scales systematically with computational function and can be implemented in ANNs by increasing time constants or excitatory scaling with layer depth so that early layers respond rapidly to transient inputs and deeper layers integrate over longer timescales. In parallel, neuromodulatory receptor densities (dopamine, acetylcholine, serotonin) are higher in higher-order areas than in early sensory cortex \cite{froudistwalsh2023}, implying stronger plasticity and gain modulation in associative regions. This can be captured by scaling learning rates or three-factor gating signals with depth, making lower layers learn stable, hardwired features whilst higher layers remain more flexible and task-dependent---together producing networks whose dynamics and plasticity gradients more closely match cortical organisation.
+
+\textbf{Online vs Batch Learning Constraints.}
+Biological learning occurs online---synaptic weights are updated continuously during ongoing behaviour, not in separate training phases on shuffled datasets. Standard BPTT requires storing all past hidden states for gradient computation, which is biologically implausible. Dendritic error models (Section \ref{sec:q1_learning}) address this by computing weight updates locally and online, avoiding the need for distinct learning and inference phases. Imposing online learning constraints forces networks to develop representations that support continual adaptation rather than relying on multiple passes over static datasets, potentially improving robustness in non-stationary environments.
+
+\textbf{Biologically-Inspired Architecture Variants.}
+Standard gated architectures (LSTMs, GRUs) achieve strong performance but rely on multiplicative gating mechanisms whose biological implementation remains unclear. Recent work has developed biologically-inspired variants such as Light GRUs that incorporate learnt gating whilst constraining architectures to be more consistent with known neural dynamics. Similarly, leaky RNNs with explicit time constants (Section \ref{sec:q1_architecture}) provide a simpler, more biologically grounded alternative to complex gating mechanisms. These variants demonstrate that biological plausibility and computational capability can coexist: Light GRUs match standard GRU performance whilst obeying tighter biological constraints.
+
+%=============================================================================
+% QUESTION 2: PRACTICAL IMPLEMENTATION
+%=============================================================================
+\newpage
+\section{Question 2: NeuroGym Task Implementation}
+\label{sec:question2}
+
+%-----------------------------------------------------------------------------
+% QUESTION 2A: MODEL IMPLEMENTATION (Max 3 pages)
+%-----------------------------------------------------------------------------
+\subsection{Question 2a: Model Implementation [10 marks]}
+\label{sec:question2a}
+
+% Initially, train and compare at least two models:
+% 1. Standard RNN (vanilla, leaky, GRU, LSTM)
+% 2. Brain-inspired variant(s) based on Q1 discussion
+
+\subsubsection{Task Selection: ReadySetGo}
+
+The ReadySetGo task \cite{remington2018flexible} requires models to measure and reproduce temporal intervals, testing temporal processing capabilities crucial for cognitive function. 
+
+\textbf{Task Structure:} $\text{Ready}(t_0) \to \text{Set}(t_0 + t_s)
+  \to \text{Go}(t_0 + t_s + g \cdot t_s)$
+
+
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.75\textwidth]{figures/readysetgo_task_structure.png}
+    \caption{ReadySetGo task structure. Left: Input stimuli showing Ready and Set cues for three trials with different sample intervals.}
+    \label{fig:task_structure}
+\end{figure}
+
+The model must measure the Ready-to-Set interval ($t_s$) and reproduce it scaled by gain factor $g = 1.5$. This requires temporal integration over variable delays (500-2000ms), directly testing the time constants and firing rate regularisation discussed in Question 1. The task was chosen because it mirrors interval timing in prefrontal cortex \cite{remington2018flexible}, isolates temporal processing from confounding working memory demands, and is sensitive to biological constraints whilst remaining computationally tractable. 
+
+
+\subsubsection{Model Architectures}
+
+
+\textbf{Model 1: Vanilla RNN (Baseline)}
+
+Standard recurrent architecture with tanh activation function. The tanh activation was chosen for its bounded output range $[-1, 1]$, which prevents explosive activations whilst allowing both positive and negative values. This serves as the baseline against which biological constraints are evaluated.
+
+\textbf{Model 2: Leaky RNN}
+
+Incorporates membrane time constant $\tau = 100$ms for temporal integration, directly implementing the architectural constraint discussed in Section \ref{sec:q1_architecture}. The leaky integration term allows the network to maintain information across delays by controlling the timescale of hidden state decay. This is particularly relevant for ReadySetGo, where accurate interval timing requires sustained temporal representations. Recurrent noise ($\sigma_{\text{rec}} = 0.15$, $\xi_t \sim \mathcal{N}(0,1)$) is added to match neural variability observed in biological systems. The activation function is changed to ReLU to maintain non-negative firing rates, consistent with biological neurons.
+
+\textbf{Model 3: Leaky RNN + Feedback Alignment}
+
+Builds on Model 2 by addressing the weight transport problem through feedback alignment \cite{lillicrap2016}, as discussed in Section \ref{sec:q1_learning}. Forward propagation uses trained weights $W$, whilst backpropagation uses fixed random weights $B$ instead of the biologically implausible symmetric transpose $W^T$. This removes the requirement for reciprocal connectivity whilst maintaining effective gradient-based learning.
+
+\textbf{Model 4: Biologically Realistic RNN}
+
+Integrates all Question 1 constraints for maximal biological realism: (1) feedback alignment with random backward weights addressing the weight transport problem, (2) Dale's principle enforcing 80\% excitatory / 20\% inhibitory separation matching cortical ratios, (3) L1 weight regularisation ($\beta_{L1} = 10^{-5}$) promoting learned sparse connectivity, and (4) L2 firing rate regularisation ($\beta_{L2} = 0.01$) enforcing metabolically plausible activity levels. This architecture combines constraints across learning (feedback alignment), structure (Dale's principle, time constants), and optimization (L1/L2 regularisation) to test whether biological plausibility impairs task performance.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    model/.style={rectangle, rounded corners, minimum width=2.8cm, minimum height=1.2cm,
+                  text centered, draw=black, fill=blue!15, font=\bfseries\footnotesize, align=center},
+    constraint/.style={rectangle, rounded corners, minimum width=2.8cm, minimum height=0.5cm,
+                       text centered, draw=black, fill=orange!20, font=\scriptsize, align=center},
+    arrow/.style={-Stealth, thick, black},
+    label/.style={font=\tiny, align=center},
+    node distance=0.3cm
+]
+
+% Model 1
+\node (m1) [model] {Vanilla\\RNN};
+\node (c1) [below=0.05cm of m1, label] {Baseline};
+
+% Arrow 1
+\node (arrow1) [right=1.2cm of m1] {};
+\draw [arrow] (m1) -- node[above, font=\scriptsize] {+ Leaky} (arrow1);
+
+% Model 2 with constraints below
+\node (m2) [model, right=1.2cm of m1] {Leaky\\RNN};
+\node (m2c) [constraint, below=0.05cm of m2] {$\tau$, ReLU, noise};
+
+% Arrow 2
+\node (arrow2) [right=1.2cm of m2] {};
+\draw [arrow] (m2) -- node[above, font=\scriptsize] {+ FA} (arrow2);
+
+% Model 3 with constraints below
+\node (m3) [model, right=1.2cm of m2] {Leaky RNN\\+ FA};
+\node (m3c) [constraint, below=0.05cm of m3] {Feedback Align.\\($B$ not $W^T$)};
+
+% Arrow 3
+\node (arrow3) [right=1.2cm of m3] {};
+\draw [arrow] (m3) -- node[above, font=\scriptsize] {+ Bio} (arrow3);
+
+% Model 4 with constraints below
+\node (m4) [model, right=1.2cm of m3] {Bio-\\Realistic};
+\node (m4c) [constraint, below=0.05cm of m4] {Dale's\\L1 + L2 Reg.};
+
+% Top labels
+\node[above=0.3cm of m1, font=\scriptsize, text=gray] {Architecture};
+\node[above=0.3cm of m2, font=\scriptsize, text=gray] {+ Temporal};
+\node[above=0.3cm of m3, font=\scriptsize, text=gray] {+ Learning};
+\node[above=0.3cm of m4, font=\scriptsize, text=gray] {+ Full Constraints};
+
+\end{tikzpicture}
+\caption{Progressive addition of biological constraints across four model architectures. Each model builds on the previous by adding brain-inspired mechanisms: temporal integration (Model 2), biologically plausible learning (Model 3), and full architectural constraints (Model 4).}
+\label{fig:model_progression}
+\end{figure}
+
+
+\subsubsection{Implementation Details}
+
+All models were trained for 2,000 steps using identical hyperparameters to ensure fair comparison: Adam optimizer ($\alpha = 0.001$), 50 hidden units, batch size 16, temporal discretization $\Delta t = 20$ms, and recurrent noise $\sigma_{\text{rec}} = 0.15$. Class weights $(0.1, 1.0)$ were applied to balance the fixation/action imbalance inherent in timing tasks. The loss function combined cross-entropy task loss with L1 weight regularisation ($\beta_{L1} = 10^{-4}$) and L2 activity regularisation ($\beta_{L2} = 0.01$) for the bio-realistic model only.
+
+\textbf{Feedback Alignment Implementation.}
+Implementing biologically plausible feedback alignment in PyTorch required careful consideration of the autograd system. Standard PyTorch hooks proved insufficient because they cannot override gradient computation during the backward pass in a way that properly implements random feedback weights. The solution involved creating a custom \texttt{torch.autograd.Function} that explicitly separates forward and backward passes:
+
+\textbf{Forward pass:} Standard linear transformation using trained weights $W$:
+\begin{equation}
+y = xW^{\top} + b
+\end{equation}
+
+\textbf{Backward pass:} Replace $W^{\top}$ with fixed random matrix $B$ for input gradients whilst maintaining standard gradients for weight updates:
+\begin{equation}
+\frac{\partial L}{\partial x} = \frac{\partial L}{\partial y} \cdot B, \quad \frac{\partial L}{\partial W} = \left(\frac{\partial L}{\partial y}\right)^{\top} x
+\end{equation}
+
+This ensures forward weights learn through standard backpropagation whilst error signals propagate through random feedback pathways—solving the weight transport problem. The feedback matrix $B \in \mathbb{R}^{d_{\text{in}} \times d_{\text{out}}}$ was initialized uniformly: $B_{ij} \sim \mathcal{U}\left(-\frac{1}{\sqrt{d_{\text{in}}}}, \frac{1}{\sqrt{d_{\text{in}}}}\right)$, matching the scale of forward weights to prevent gradient explosion. Initial implementations using hooks on input tensors failed because PyTorch's autograd graph construction does not allow runtime modification of gradient flow in recurrent settings. The custom Function approach succeeded by explicitly overriding \texttt{backward()}, giving full control over gradient routing whilst maintaining compatibility with Adam optimisation and gradient clipping.
+
+\subsubsection{Learning Performance}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{figures/question_2a_results.png}
+    \caption{Learning curves showing task loss only for fair comparison across models. All models successfully learn the timing task, demonstrating that biological constraints (feedback alignment, Dale's principle, L1/L2 regularisation) do not impair task performance. The bio-realistic model achieves comparable task loss despite additional constraints.}
+    \label{fig:learning_curves}
+\end{figure}
+
+All models converge successfully, with every architecture achieving low task loss ($<0.04$), demonstrating that biological constraints are compatible with effective learning on temporal tasks. The Vanilla RNN (blue) converges fastest initially, benefiting from unconstrained optimization, though after 1,500 steps the Leaky and Bio-realistic models match or exceed its performance. Feedback alignment impairs early learning, as the Leaky+FA model (green) shows consistently higher loss than the standard Leaky RNN (orange) throughout training, indicating that random backward weights slow convergence compared to symmetric backpropagation—though both reach similar final performance. Despite integrating four constraints (FA, Dale's, L1, L2), the Bio-realistic model (red) converges to comparable task loss as simpler architectures and notably outperforms Leaky+FA, suggesting that Dale's principle and regularisation improve learning dynamics rather than hindering them. Finally, plotting task loss rather than total loss is essential for fair comparison, as the Bio-realistic model's total loss includes L1 weight and L2 activity penalties that would artificially inflate apparent performance gaps despite equivalent task competence. 
+
+%-----------------------------------------------------------------------------
+% QUESTION 2B: ANALYSIS OF TRAINED MODELS (Max 4 pages)
+%-----------------------------------------------------------------------------
+\newpage
+\subsection{Question 2b: Hidden Unit Activity Analysis [20 marks]}
+\label{sec:question2b}
+
+% Analyze how trained models solve the task
+% Compare models and interpret differences
+
+\subsubsection{Performance Comparison}
+
+Figure \ref{fig:timing_performance} exposes distinct timing strategies beyond simple loss metrics. The Vanilla RNN (blue) shows consistent linear scaling but systematically undershoots targets, learning relative timing structure without precise calibration. The Leaky RNN (orange) achieves near-perfect performance ($\mu=-19.4$ms, $\sigma=195.5$ms), with leaky dynamics ($\tau=100$ms) providing an intrinsic timescale for accurate interval representation. In stark contrast, Leaky+FA (green) exhibits severe underprediction ($\mu=-324.6$ms, $\sigma=173.2$ms)—feedback alignment's random backward weights impair precise temporal mapping, so the model learns \textit{when} to respond but not \textit{exactly when}.
+
+Most intriguingly, the Bio-Realistic model (red) displays bimodal behaviour: complete response failures (zero cluster) and delayed successful responses ($\mu=203.6$ms, $\sigma=873.7$ms). This pattern mirrors biological neural variability in primate timing tasks \cite{remington2018}, where L1 regularisation causes failures when critical neurons remain silent, whilst Dale's principle introduces noise manifesting as reaction delays. Accuracy metrics alone would miss these nuanced differences, highlighting the importance of direct interval analysis.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/readysetgo_timing.png}
+    \caption{Timing performance analysis across models. \textbf{Left:} Scatter plot showing target versus produced intervals, with black diagonal indicating perfect timing. Leaky RNN (orange) clusters near-perfectly along the diagonal, whilst Leaky+FA (green) systematically undershoots and Bio-Realistic (red) shows high variance with failure modes. \textbf{Right:} Error distributions with mean ($\mu$) and standard deviation ($\sigma$) revealing systematic biases and precision differences. Fixed 50ms bin width enables direct comparison across models.}
+\label{fig:timing_performance}
+\end{figure}
+
+\subsubsection{Neural Population Dynamics}
+
+Figure \ref{fig:trajectories} reveals fundamentally different computational strategies by visualising how 50-dimensional neural activity evolves through PCA space during timing. The Vanilla RNN exhibits a single, deterministic trajectory (PC1: 70.4\%, PC2: 24.6\%), suggesting simple attractor dynamics where neural state flows along a fixed manifold. This low-dimensional simplicity explains systematic timing errors—the singular path cannot flexibly represent multiple interval durations.
+
+The Leaky RNN shows 10-15 distinct, smooth parallel trajectories (PC1: 62.1\%, PC2: 20.3\%), resembling primate prefrontal cortex dynamics \cite{remington2018} where different intervals occupy separate paths through a shared neural manifold. Leaky integration ($\tau=100$ms) enables richer temporal representations whilst maintaining structured, low-noise dynamics. Leaky+FA displays similar structure but with higher compression (PC1: 84.2\%, PC2: 13.0\%)—feedback alignment's random backward weights regularise dynamics to lower dimensionality, potentially explaining systematic timing bias through reduced interval discrimination.
+
+Most strikingly, the Bio-Realistic model exhibits irregular, variable trajectories with no parallel structure (PC1: 86.6\%, PC2: 8.3\%). Dale's principle and L1 regularisation create sparse, intermittent activity producing jagged paths that mirror biological circuit recordings \cite{remington2018}. Counterintuitively, high PC1 variance reflects \textit{sparsity}, not low dimensionality.
+
+Critically, across models, Ready and Go occupy consistent state space regions whilst Set positions vary dramatically, suggesting interval duration is encoded geometrically: spatial position along a neural manifold directly represents elapsed time—a population clock mechanism \cite{remington2018}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/readysetgo_trajectories.png}
+    \caption{Neural trajectories in PCA space (10 trials per model). Green circles mark Ready (trial start), blue diamonds mark Set (cue), red squares mark Go (response).}
+    \label{fig:trajectories}
+\end{figure}
+
+\subsubsection{Temporal Activity Patterns}
+
+Figure \ref{fig:heatmaps} reveals how individual neurons encode timing across trial duration. The Vanilla RNN exhibits binary activation patterns—neurons are either strongly active or silent—creating blocky structure before Set (red line), then transitioning to dense, sustained firing where nearly all neurons activate at staggered phases. This distributed, continuous coding uses the full population but lacks temporal precision. The Leaky RNN maintains dense activity but with shorter, more structured bursts, whilst Leaky+FA concentrates firing around Set, showing increased sparsity. Most strikingly, the Bio-Realistic model activates only ~9 neurons clustered near Set—extreme sparsity enforced by L1 regularization, where most of the 50-neuron population remains silent throughout.
+
+This sparsity gradient is biologically significant. Cortical recordings show only 10-20\% of neurons fire in any time window \cite{remington2018}, making the Bio-Realistic model's sparse activation the most faithful representation. Dense firing in Vanilla/Leaky models is metabolically expensive and unlike biology, where energy constraints favour sparse codes. However, sparsity creates fragility: the Bio-Realistic model's reliance on ~9 critical neurons explains its response failures—if these neurons don't activate, timing collapses. This demonstrates the biological trade-off between metabolic efficiency (sparsity) and robustness (redundancy), where evolution balances sparse coding's efficiency against failure risk through partially overlapping neural populations. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/readysetgo_heatmaps.png}
+    \caption{Activity heatmaps showing 50 neurons over time for a single trial across models. Cyan dashed line marks Set cue, lime dashed line marks expected Go response. Vertical axis: neuron index, horizontal axis: time, color: activity magnitude. }
+    \label{fig:heatmaps}
+\end{figure}
+
+\subsubsection{Neuron Importance Analysis}
+
+\textcolor{red}{change this plot to be a histogram of percentage contributed of activations}
+
+Figure \ref{fig:neuron_importance} quantifies functional specialization by ranking neurons by activity variance—a proxy for how much timing information each unit carries. The Bio-Realistic model (red) exhibits an extremely steep importance curve: after the top 10 neurons, contributions collapse, indicating that a small, highly specialized “timing circuit” explains nearly all variance. In contrast, the Vanilla RNN (blue) distributes computation broadly, requiring roughly 35 neurons to reach 0.25 normalized variance, with no single unit playing a dominant role. The Leaky models (orange, green) lie between these extremes, with Leaky+FA showing slightly sharper concentration, suggesting that feedback-alignment’s random gradients unintentionally promote specialization. This hierarchy mirrors biological cortex, where sparse task-encoding neurons sit within larger populations \cite{remington2018}, yet it also exposes trade-offs: extreme specialization (Bio-Realistic) is efficient but fragile, distributed coding (Vanilla) is robust but metabolically and computationally costly, and intermediate strategies (Leaky) balance precision and redundancy. Together, these patterns highlight a general principle: effective neural computation must trade off specialization for efficiency against distribution for robustness, with biological constraints nudging systems toward sparse but potentially vulnerable representations.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/mechanism_5_neuron_importance.png}
+    \caption{Neuron importance ranked by normalized activity variance across time. Bio-Realistic (red) shows extreme concentration with top 10 neurons dominating, whilst Vanilla (blue) distributes computation broadly across ~35 neurons. Leaky models (orange, green) show intermediate specialization, balancing efficiency and robustness.}
+    \label{fig:neuron_importance}
+\end{figure}
+
+\subsubsection{Summary of Findings}
+
+Analysis of trained models reveals fundamentally different computational strategies for interval timing, shaped by architectural constraints and biological principles. The Leaky RNN achieves optimal performance through parallel trajectory organization in state space and moderate neural specialization—approximately 10-15 distinct temporal trajectories encode different intervals through structured, low-noise dynamics, whilst ~20-30 neurons contribute meaningfully to timing computation. This intermediate strategy balances precision (achieving $\mu=-19.4$ms timing error) against robustness, mirroring efficient biological circuits where redundancy protects against noise whilst avoiding metabolic waste.
+
+Biological constraints push solutions toward sparse, specialized representations at the cost of performance. The Bio-Realistic model's extreme sparsity (~9 active neurons, top 10 explaining nearly all variance) and irregular state-space trajectories closely resemble primate cortical recordings \cite{remington2018}, but this biological fidelity introduces fragility: response failures occur when critical sparse neurons remain silent, and high variance ($\sigma=873.7$ms) reflects stochastic recruitment. Conversely, the Vanilla RNN's dense, distributed coding (requiring ~35 neurons for equivalent representation) achieves robustness but sacrifices efficiency and biological plausibility. Feedback alignment further reveals that learning algorithm constraints matter: random backward weights compress dynamics to lower dimensionality, producing systematic timing bias despite accurate task structure learning.
+
+Critically, all models encode time geometrically—Set cue position varies along neural manifolds whilst Ready and Go occupy consistent regions, implementing "population clock" mechanisms where spatial location in state space directly represents elapsed time \cite{remington2018}. This geometric temporal encoding appears to be a convergent solution across architectures, suggesting it may be a fundamental computational principle for interval timing in both artificial and biological neural systems. The findings demonstrate that biological constraints (Dale's principle, sparse coding, feedback alignment) are compatible with effective learning but introduce specific trade-offs: sparsity improves metabolic efficiency at the cost of fragility, whilst biologically-plausible learning impairs precision even when preserving task accuracy.
+
+%-----------------------------------------------------------------------------
+% QUESTION 2C: SECOND TASK (Max 4 pages)
+%-----------------------------------------------------------------------------
+
+\newpage
+\subsection{Question 2c: Second Task Analysis [20 marks]}
+\label{sec:question2c}
+
+elio does delay match sample
+
+% Train same models on a second NeuroGym task
+% Analyze as in 2b
+% Do conclusions from 2b hold?
+
+\subsubsection{Task Description}
+
+[Describe second task - e.g., PerceptualDecisionMaking, ContextDecisionMaking, etc.]
+
+\subsubsection{Training and Performance}
+
+[Learning curves, performance table for second task]
+
+\subsubsection{Hidden Unit Analysis}
+
+[Trajectories, heatmaps, ramping for second task]
+
+\subsubsection{Cross-Task Comparison}
+
+[Do bio-realistic models generalize better? Are computational strategies similar? What differs?]
+
+%-----------------------------------------------------------------------------
+% QUESTION 2D: ORIGINAL CONTRIBUTION (Max 4 pages)
+%-----------------------------------------------------------------------------
+\newpage
+\subsection{Question 2d: Original Contribution [20 marks]}
+\label{sec:question2d}
+
+% Something original - examples:
+% - Different architecture
+% - Different learning type (RL)
+% - Neuromodulation
+% - Multi-task learning
+% - Or anything unexpected
+% Compare to brains and standard ML/AI
+
+\subsubsection{Motivation and Approach}
+
+My original contribution is the \textbf{progressive biological realism} approach: systematically adding brain-inspired constraints to demonstrate that biological principles enhance rather than hinder artificial neural networks.
+
+\textbf{Research Question:} Does progressively adding biological constraints improve model interpretability and generalization while maintaining performance?
+
+\subsubsection{Methodology}
+
+Four-stage progression:
+\begin{enumerate}
+    \item Baseline (Vanilla RNN)
+    \item Time constants (Leaky RNN)
+    \item Biologically realistic learning (+ Feedback Alignment)
+    \item Full biological constraints (+ Dale's + Sparse + L2)
+\end{enumerate}
+
+This allows systematic evaluation of each constraint's contribution.
+
+\subsubsection{Results and Analysis}
+
+[Present findings showing biological constraints maintain/improve performance while creating more interpretable dynamics]
+
+\subsubsection{Comparison to Brains and Standard ML}
+
+\textbf{Similarities to biological systems:}
+\begin{itemize}
+    \item Firing rate distributions
+    \item E/I balance
+    \item Sparse, structured connectivity
+    \item Temporal dynamics
+\end{itemize}
+
+\textbf{Advantages over standard ML:}
+\begin{itemize}
+    \item Improved interpretability
+    \item Potentially better generalization
+    \item Reduced computational requirements (sparsity)
+    \item More robust to perturbations
+\end{itemize}
+
+\subsubsection{Limitations and Future Directions}
+
+Current limitations:
+\begin{itemize}
+    \item Static connectivity (no plasticity)
+    \item Simplified neuron models
+    \item Limited scale (50 neurons)
+\end{itemize}
+
+Future work:
+\begin{itemize}
+    \item Implement synaptic plasticity
+    \item Scale to larger networks
+    \item Test on more complex tasks
+    \item Direct neural data comparison
+\end{itemize}
+
+
+%=============================================================================
+% QUESTION 3: CONCLUSION (Max 500 words)
+%=============================================================================
+\section{Question 3: Conclusion [10 marks]}
+\label{sec:question3}
+
+% Brief discussion summarizing learnings
+% Reference literature
+% Max 500 words
+
+This coursework investigated brain-inspired constraints in recurrent neural networks through systematic implementation and analysis on temporal cognitive tasks.
+
+\textbf{Key Findings:}
+
+\textbf{1. Biological constraints are compatible with learning:}
+Feedback alignment, Dale's principle, sparse connectivity, and L2 regularization did not impair task performance. The bio-realistic model achieved comparable accuracy to baseline (XXX\% vs XXX\%), demonstrating that biological plausibility and computational capability are not mutually exclusive.
+
+\textbf{2. Constraints improve neural interpretability:}
+Population dynamics in bio-realistic models exhibited more structured, organized trajectories in state space, similar to prefrontal cortex recordings \cite{remington2018}. Lower, more realistic firing rates and sparser activity patterns emerged naturally from L2 regularization and sparse connectivity.
+
+\textbf{3. Time constants are crucial for temporal processing:}
+Leaky integration ($\tau = 100$ms) proved essential for timing tasks, enabling networks to maintain information across delays. This aligns with computational neuroscience findings that time constants match task-relevant timescales.
+
+\textbf{4. Progressive addition reveals individual contributions:}
+The systematic approach revealed that feedback alignment addresses learning (weight transport problem), while architectural constraints (Dale's, sparsity) shape dynamics without sacrificing performance.
+
+\textbf{Implications:}
+
+\textbf{For Neuroscience:} Trained RNNs provide testable hypotheses about neural computation. The observation that biologically constrained models solve tasks similarly to brain recordings supports the "computation through dynamics" framework \cite{remington2018,churchland2012}.
+
+\textbf{For AI:} Biological principles offer design insights beyond mere performance. Sparse, structured networks with realistic dynamics may generalize better, require less data, and provide interpretable solutions - crucial for trustworthy AI.
+
+\textbf{Broader Context:}
+This work sits at the intersection of cognitive neuroscience and machine learning, where each field informs the other. As AI systems tackle increasingly cognitive tasks, incorporating biological principles may prove essential for human-like intelligence.
+
+\textbf{Future Directions:}
+Promising extensions include implementing homeostatic plasticity, testing on compositional tasks requiring generalization, and direct comparison to neural recordings during identical tasks. The framework established here provides foundation for exploring richer biological mechanisms.
+
+In conclusion, brain-inspired constraints enhance artificial neural networks not by limiting them to biological quirks, but by incorporating principles evolution discovered through optimizing for real-world intelligence. The success of these constraints suggests computational neuroscience and AI research are converging toward shared principles of intelligent computation.
+
+
+%=============================================================================
+% REFERENCES
+%=============================================================================
+\newpage
+\singlespacing
+\bibliographystyle{ieeetr}
+\bibliography{refs}
+
+% Key citations to include:
+% Lillicrap et al., 2016 - Feedback Alignment
+% Murray, 2019 - RFLO learning
+% Song et al., 2016 - Dale's principle, sparse connectivity
+% Goudar et al., 2023 - L2 firing rate regularization
+% Remington et al., 2018 - ReadySetGo task, neural trajectories
+% Churchland et al., 2012 - Population dynamics
+% Yang et al., 2019 - L1 regularization
+% Achterberg et al., 2023 - Distance-based connectivity
+% Whittington & Bogacz, 2019 - Dendritic error model
+% Liu & Wang, 2024 - Cell types
+
+% the end
+\end{document}
