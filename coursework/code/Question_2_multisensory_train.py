@@ -10,6 +10,7 @@ import torch.optim as optim
 
 
 def evaluate_model_balanced(net, env, num_trials=500):
+    """Evaluate model on MultiSensoryIntegration task with balanced metrics."""
     net.eval()
     device = next(net.parameters()).device
 
@@ -42,6 +43,7 @@ def evaluate_model_balanced(net, env, num_trials=500):
     predictions = np.array(trial_data['predictions'])
     ground_truths = np.array(trial_data['ground_truths'])
 
+    # Calculate balanced accuracy (average per-class recall)
     unique_classes = np.unique(ground_truths)
     per_class_recalls = []
 
@@ -58,17 +60,12 @@ def evaluate_model_balanced(net, env, num_trials=500):
 
 
 def train_model_with_lr_decay(net, dataset, num_steps=5000, lr=0.001, print_step=200,
-                              beta_L1=0.0, beta_L2=0.0, class_weights=None,
-                              use_decision_masking=False):
+                              beta_L1=0.0, beta_L2=0.0, class_weights=None):
+    """Training function with learning rate decay."""
     optimizer = optim.Adam(net.parameters(), lr=lr)
     device = next(net.parameters()).device
 
-    # Decision masking: only train on decision timesteps (not fixation)
-    # This solves the 72% fixation / 28% decision imbalance problem
-    if use_decision_masking:
-        criterion = nn.CrossEntropyLoss(reduction='none')  # Per-sample loss for masking
-        print("  Using decision-only loss masking (train only on classes 1 & 2)")
-    elif class_weights is not None:
+    if class_weights is not None:
         criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
     else:
         criterion = nn.CrossEntropyLoss()
@@ -83,7 +80,7 @@ def train_model_with_lr_decay(net, dataset, num_steps=5000, lr=0.001, print_step
     lr_decays_done = [False, False, False]
 
     for i in range(num_steps):
-        # Multiple learning rate drops at 30%, 60%, 85% of training
+        # Learning rate decay at 30%, 60%, 85% of training
         for idx, step in enumerate(lr_decay_steps):
             if not lr_decays_done[idx] and i == step:
                 for param_group in optimizer.param_groups:
@@ -100,14 +97,7 @@ def train_model_with_lr_decay(net, dataset, num_steps=5000, lr=0.001, print_step
         output = output.view(-1, output.size(-1))
 
         # Task loss
-        if use_decision_masking:
-            # Only compute loss on decision timesteps (where label != 0)
-            loss_per_sample = criterion(output, labels)
-            decision_mask = (labels != 0).float()
-            task_loss = (loss_per_sample * decision_mask).sum() / (decision_mask.sum() + 1e-8)
-        else:
-            task_loss = criterion(output, labels)
-
+        task_loss = criterion(output, labels)
         loss = task_loss
 
         # L1 regularization on weights (sparse connectivity)
@@ -140,7 +130,6 @@ def train_model_with_lr_decay(net, dataset, num_steps=5000, lr=0.001, print_step
                 print(f'Step {i+1:5d}, Loss: {avg_loss:.4f} (Task: {avg_task:.4f}, L1: {avg_l1:.4f}, L2: {avg_l2:.4f})')
             else:
                 print(f'Step {i+1:5d}, Loss: {avg_loss:.4f}')
-            # Save task loss only for fair comparison across models
             loss_history.append(avg_task)
             running_loss = 0.0
             running_task_loss = 0.0
@@ -150,15 +139,13 @@ def train_model_with_lr_decay(net, dataset, num_steps=5000, lr=0.001, print_step
     return loss_history
 
 
-# Use GPU if available for faster training
-# Note: MPS (Apple Silicon GPU) can be slower than CPU for RNNs due to overhead
-# Set USE_MPS = True to try GPU, or False to force CPU (often faster for RNNs)
+# Device selection
 USE_MPS = False
 
 if torch.cuda.is_available():
     device = torch.device('cuda')
 elif USE_MPS and torch.backends.mps.is_available():
-    device = torch.device('mps')  # Apple Silicon GPU
+    device = torch.device('mps')
 else:
     device = torch.device('cpu')
 print(f"Using device: {device}")
@@ -166,7 +153,6 @@ print(f"Using device: {device}")
 
 if __name__ == '__main__':
     # ============ TRAINING TOGGLES ============
-    # Set to False to skip training models (faster iteration)
     TRAIN_VANILLA = True
     TRAIN_LEAKY = True
     TRAIN_LEAKY_FA = True
@@ -174,38 +160,25 @@ if __name__ == '__main__':
 
     # Quick test mode (faster but less accurate)
     QUICK_TEST = False  # Set to True for faster testing with fewer steps
-
-    # Decision masking: Only train on decision timesteps (not fixation)
-    # DOESN'T WORK: RNNs need gradient from fixation to learn temporal dynamics!
-    # Use balanced class weights instead
-    USE_DECISION_MASKING = False  # Keep False - pure masking breaks RNN learning
-
-    # Speed tips:
-    # - QUICK_TEST=True: 3k steps (~1-2 min/model) vs 10k steps (~3-5 min/model)
-    # - Batch size increased: 16→64 for ~2-3x speedup via better parallelization
-    # - MPS GPU disabled (USE_MPS=False above) - CPU is faster for RNNs on Mac
-    # - Fastest: QUICK_TEST=True + train only Leaky RNN = ~1 minute total
-    # - Skip slow models: TRAIN_VANILLA=False, TRAIN_LEAKY_FA=False, TRAIN_BIO=False
     # ==========================================
 
     print("=" * 70)
-    print("Question 2c: Training Models on DelayMatchSample Task")
+    print("Question 2: Training Models on MultiSensoryIntegration-v0")
     print("=" * 70)
     print(f"\nTraining: Vanilla={TRAIN_VANILLA}, Leaky={TRAIN_LEAKY}, "
           f"Leaky+FA={TRAIN_LEAKY_FA}, Bio={TRAIN_BIO}\n")
 
-    print("[1] Setting up NeuroGym DelayMatchSample task (without distractors)...")
-    task = 'DelayMatchSample-v0'
-    kwargs_env = {'dt': 20}
-    seq_len = 160  # Natural trial length for DMS task at dt=20 (was 200, causing padding issues)
+    print("[1] Setting up NeuroGym MultiSensoryIntegration-v0 task...")
+    task = 'MultiSensoryIntegration-v0'
+    kwargs_env = {'dt': 100}
+    seq_len = 50  # Short trials (11 timesteps)
 
-    # Larger batch size = faster training (more parallelization)
-    # 64 is a good balance between speed and memory usage
-    batch_size = 64 if not QUICK_TEST else 32  # Smaller batch for quick test to reduce overhead
+    # Larger batch size for faster training
+    batch_size = 64 if not QUICK_TEST else 32
 
     dataset = ngym.Dataset(task, env_kwargs=kwargs_env, batch_size=batch_size, seq_len=seq_len)
     env = dataset.env
-    print(f"Batch size: {batch_size} (larger = faster training)")
+    print(f"Batch size: {batch_size}")
 
     input_size = env.observation_space.shape[0]
     output_size = env.action_space.n
@@ -213,36 +186,34 @@ if __name__ == '__main__':
     common_lr = 0.002
     common_noise = 0.1
 
+    print(f"Task: {task}")
+    print(f"Description: Integrate information from multiple sensory modalities")
+    print(f"Input size: {input_size} (fixation + 4 sensory channels)")
+    print(f"Output size: {output_size} (fixate, left, right)")
+    print(f"Hidden size: {hidden_size}")
+
     # Adjust training duration based on mode
     if QUICK_TEST:
-        num_steps = 3000  # Quick test: ~1-2 minutes per model
-        num_eval_trials = 200  # Fewer evaluation trials
-        print(">>> QUICK TEST MODE: Using 3000 steps <<<\n")
+        num_steps = 3000
+        num_eval_trials = 200
+        print("\n>>> QUICK TEST MODE: Using 3000 steps <<<\n")
     else:
-        num_steps = 10000  # Full training: ~5-7 minutes per model (was 15k, reduced for speed)
-        num_eval_trials = 500  # More evaluation trials for accuracy
+        num_steps = 10000
+        num_eval_trials = 500
 
-    # Class weighting strategy:
-    # Use inverse frequency weighting to balance the 72% fixation / 28% decision imbalance
-    # Class 0 (fixation): 71.9% → weight = 1.0
-    # Class 1 (match): 14.2% → weight = 71.9/14.2 ≈ 5.0
-    # Class 2 (non-match): 13.9% → weight = 71.9/13.9 ≈ 5.2
-    # Normalized to reasonable range: [1.0, 5.0, 5.0]
+    # Class weights: balance fixation vs decision classes
+    # 90.9% fixation, so weight decisions higher
     class_weights = torch.tensor([1.0, 5.0, 5.0], dtype=torch.float32).to(device)
-
-    if USE_DECISION_MASKING:
-        print(f"Training strategy: Decision-only masking (NOT RECOMMENDED - breaks RNN learning)")
-        class_weights = None  # Don't use class weights with masking
-    else:
-        print(f"Training strategy: Balanced class weights {class_weights.tolist()}")
-        print(f"  Fixation weighted 1x, decisions weighted 5x (compensates for imbalance)")
+    print(f"Training strategy: Balanced class weights {class_weights.tolist()}")
+    print(f"  Fixation weighted 1x, decisions weighted 5x (compensates for 91% fixation)\n")
 
     loss_dict = {}
     perf_dict = {}
+    bal_acc_dict = {}
     trial_data_dict = {}
     models_dict = {}
 
-    # ---------------- Vanilla ----------------
+    # ---------------- Vanilla RNN ----------------
     if TRAIN_VANILLA:
         print("[2] Training Vanilla RNN...")
         print("-" * 70)
@@ -255,21 +226,24 @@ if __name__ == '__main__':
 
         loss_vanilla = train_model_with_lr_decay(
             net_vanilla, dataset, num_steps=num_steps, lr=common_lr,
-            class_weights=class_weights, use_decision_masking=USE_DECISION_MASKING
+            class_weights=class_weights
         )
-        perf_vanilla, bal_acc_vanilla, data_vanilla = evaluate_model_balanced(net_vanilla, env, num_trials=num_eval_trials)
+        perf_vanilla, bal_acc_vanilla, data_vanilla = evaluate_model_balanced(
+            net_vanilla, env, num_trials=num_eval_trials
+        )
 
         loss_dict['vanilla'] = loss_vanilla
         perf_dict['vanilla'] = perf_vanilla
+        bal_acc_dict['vanilla'] = bal_acc_vanilla
         trial_data_dict['vanilla'] = data_vanilla
         models_dict['vanilla'] = net_vanilla
 
-        print(f"Vanilla RNN - Accuracy: {perf_vanilla:.3f}, Balanced Accuracy: {bal_acc_vanilla:.3f}")
+        print(f"Vanilla RNN - Accuracy: {perf_vanilla:.3f}, Balanced Acc: {bal_acc_vanilla:.3f}")
         print()
     else:
         print("[2] Skipping Vanilla RNN\n")
 
-    # ---------------- Leaky ----------------
+    # ---------------- Leaky RNN ----------------
     if TRAIN_LEAKY:
         print("[3] Training Leaky RNN...")
         print("-" * 70)
@@ -285,16 +259,19 @@ if __name__ == '__main__':
 
         loss_leaky = train_model_with_lr_decay(
             net_leaky, dataset, num_steps=num_steps, lr=common_lr,
-            class_weights=class_weights, use_decision_masking=USE_DECISION_MASKING
+            class_weights=class_weights
         )
-        perf_leaky, bal_acc_leaky, data_leaky = evaluate_model_balanced(net_leaky, env, num_trials=num_eval_trials)
+        perf_leaky, bal_acc_leaky, data_leaky = evaluate_model_balanced(
+            net_leaky, env, num_trials=num_eval_trials
+        )
 
         loss_dict['leaky'] = loss_leaky
         perf_dict['leaky'] = perf_leaky
+        bal_acc_dict['leaky'] = bal_acc_leaky
         trial_data_dict['leaky'] = data_leaky
         models_dict['leaky'] = net_leaky
 
-        print(f"Leaky RNN - Accuracy: {perf_leaky:.3f}, Balanced Accuracy: {bal_acc_leaky:.3f}")
+        print(f"Leaky RNN - Accuracy: {perf_leaky:.3f}, Balanced Acc: {bal_acc_leaky:.3f}")
         print()
     else:
         print("[3] Skipping Leaky RNN\n")
@@ -315,21 +292,24 @@ if __name__ == '__main__':
 
         loss_leaky_fa = train_model_with_lr_decay(
             net_leaky_fa, dataset, num_steps=num_steps, lr=common_lr,
-            class_weights=class_weights, use_decision_masking=USE_DECISION_MASKING
+            class_weights=class_weights
         )
-        perf_leaky_fa, bal_acc_leaky_fa, data_leaky_fa = evaluate_model_balanced(net_leaky_fa, env, num_trials=num_eval_trials)
+        perf_leaky_fa, bal_acc_leaky_fa, data_leaky_fa = evaluate_model_balanced(
+            net_leaky_fa, env, num_trials=num_eval_trials
+        )
 
         loss_dict['leaky_fa'] = loss_leaky_fa
         perf_dict['leaky_fa'] = perf_leaky_fa
+        bal_acc_dict['leaky_fa'] = bal_acc_leaky_fa
         trial_data_dict['leaky_fa'] = data_leaky_fa
         models_dict['leaky_fa'] = net_leaky_fa
 
-        print(f"Leaky RNN + FA - Accuracy: {perf_leaky_fa:.3f}, Balanced Accuracy: {bal_acc_leaky_fa:.3f}")
+        print(f"Leaky RNN + FA - Accuracy: {perf_leaky_fa:.3f}, Balanced Acc: {bal_acc_leaky_fa:.3f}")
         print()
     else:
         print("[4] Skipping Leaky RNN + FA\n")
 
-    # ---------------- Bio-realistic ----------------
+    # ---------------- Bio-realistic RNN ----------------
     if TRAIN_BIO:
         print("[5] Training Biologically Realistic RNN...")
         print("-" * 70)
@@ -346,21 +326,23 @@ if __name__ == '__main__':
 
         loss_bio = train_model_with_lr_decay(
             net_bio, dataset, num_steps=num_steps, lr=common_lr,
-            beta_L1=0.0001, beta_L2=0.005, class_weights=class_weights,
-            use_decision_masking=USE_DECISION_MASKING
+            beta_L1=0.0001, beta_L2=0.005, class_weights=class_weights
         )
-        perf_bio, bal_acc_bio, data_bio = evaluate_model_balanced(net_bio, env, num_trials=num_eval_trials)
+        perf_bio, bal_acc_bio, data_bio = evaluate_model_balanced(
+            net_bio, env, num_trials=num_eval_trials
+        )
 
         loss_dict['bio'] = loss_bio
         perf_dict['bio'] = perf_bio
+        bal_acc_dict['bio'] = bal_acc_bio
         trial_data_dict['bio'] = data_bio
         models_dict['bio'] = net_bio
 
-        print(f"Bio-Realistic RNN - Accuracy: {perf_bio:.3f}, Balanced Accuracy: {bal_acc_bio:.3f}")
+        print(f"Bio-Realistic RNN - Accuracy: {perf_bio:.3f}, Balanced Acc: {bal_acc_bio:.3f}")
         print()
     else:
         print("[5] Skipping Bio-Realistic RNN\n")
-    
+
     # ---------------- Summary ----------------
     print("[6] Performance Summary:")
     print("-" * 70)
@@ -372,7 +354,7 @@ if __name__ == '__main__':
     }
     for key, label in label_map.items():
         if key in perf_dict:
-            print(f"{label:20s} {perf_dict[key]:.3f}")
+            print(f"{label:20s} Acc: {perf_dict[key]:.3f}, Bal Acc: {bal_acc_dict[key]:.3f}")
         else:
             print(f"{label:20s} (not trained)")
     print()
@@ -385,6 +367,7 @@ if __name__ == '__main__':
     save_payload = {
         'loss_dict': loss_dict,
         'perf_dict': perf_dict,
+        'bal_acc_dict': bal_acc_dict,
         'trial_data_dict': trial_data_dict,
         'env_config': {'dt': env.dt, 'task': task, 'seq_len': seq_len}
     }
@@ -399,27 +382,25 @@ if __name__ == '__main__':
     if 'bio' in models_dict:
         save_payload['bio_model'] = models_dict['bio'].state_dict()
 
-    torch.save(save_payload, 'checkpoints/question_2c_models_and_data.pt')
-    print("Saved: checkpoints/question_2c_models_and_data.pt")
+    torch.save(save_payload, 'checkpoints/question_2_multisensory_models_and_data.pt')
+    print("Saved: checkpoints/question_2_multisensory_models_and_data.pt")
     print()
 
     print("=" * 70)
     print("Training Complete!")
     print("=" * 70)
-    print("\nTask: DelayMatchSample-v0 (Working Memory - NO Distractors)")
-    print("Key differences from ReadySetGo (timing task):")
-    print("  - Requires maintaining stimulus information during delay period")
-    print("  - Must match sample stimulus to test stimulus after delay")
-    print("  - Tests working memory capacity without distractor interference")
-    print("  - Simpler than distractor variant - focuses on pure memory")
+    print("\nTask: MultiSensoryIntegration-v0")
+    print("Key characteristics:")
+    print("  - Multi-modal sensory integration task")
+    print("  - 5 input features: fixation + 4 sensory modalities")
+    print("  - 3 output actions: fixate, left, right")
+    print("  - Very short trials: only 11 timesteps!")
+    print("  - Variable difficulty via coherence (5-50) and modality weighting")
     print("\nExpected Performance:")
-    print("  - Leaky RNN: Should achieve high accuracy (~100%)")
-    print("    * Time constant (tau) provides memory effect needed for working memory")
-    print("    * Leaky integration: new_state = 0.8*old + 0.2*input maintains info")
-    print("  - Vanilla RNN: May struggle (~50-60% accuracy)")
-    print("    * Lacks explicit time constant, harder to maintain delay period info")
-    print("  - Bio-realistic models: Performance depends on biological constraints")
-    print("    * Dale's Law and sparsity may help or hurt depending on task structure")
+    print("  - This is an EASY task - models should achieve 80-95% accuracy")
+    print("  - Tests multi-modal evidence integration")
+    print("  - All architectures should perform well")
+    print("  - Differences show how architectures combine information")
     print("\nNext steps:")
-    print("  Run Question_2c_analysis.py to generate visualizations and analysis")
+    print("  Run Question_2_multisensory_analysis.py to generate visualizations")
     print("=" * 70)

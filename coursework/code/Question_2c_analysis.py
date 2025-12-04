@@ -323,6 +323,23 @@ def analyze_prediction_confidence(all_trial_data, models_dict, env, output_path=
     plt.close()
 
 
+def calculate_balanced_accuracy(predictions, ground_truths):
+    predictions = np.array(predictions)
+    ground_truths = np.array(ground_truths)
+
+    unique_classes = np.unique(ground_truths)
+    per_class_recalls = []
+
+    for cls in unique_classes:
+        mask = ground_truths == cls
+        if np.sum(mask) > 0:
+            recall = np.sum((predictions == cls) & mask) / np.sum(mask)
+            per_class_recalls.append(recall)
+
+    balanced_acc = np.mean(per_class_recalls) if per_class_recalls else 0.0
+    return balanced_acc
+
+
 def analyze_prediction_confusion(all_trial_data, models_dict, env, output_path='images/q2c_prediction_confusion.png'):
     """Analyze what models actually predict vs ground truth."""
 
@@ -332,7 +349,7 @@ def analyze_prediction_confusion(all_trial_data, models_dict, env, output_path='
     model_names = ['Vanilla RNN', 'Leaky RNN', 'Leaky RNN + FA', 'Bio-Realistic RNN']
     model_keys = ['vanilla', 'leaky', 'leaky_fa', 'bio']
 
-    action_names = ['Fixate (0)', 'Match (1)']
+    action_names = ['Fixate (0)', 'Match (1)', 'Non-Match (2)']
 
     for idx, (model_key, model_name) in enumerate(zip(model_keys, model_names)):
         net = models_dict[model_key]
@@ -359,53 +376,58 @@ def analyze_prediction_confusion(all_trial_data, models_dict, env, output_path='
         predictions = np.array(predictions)
         ground_truths = np.array(ground_truths)
 
-        # Create confusion matrix
-        confusion = np.zeros((2, 2))
-        for true_val in [0, 1]:
-            for pred_val in [0, 1]:
+        # Create confusion matrix (3x3 for 3 classes)
+        num_classes = 3
+        confusion = np.zeros((num_classes, num_classes))
+        for true_val in range(num_classes):
+            for pred_val in range(num_classes):
                 confusion[true_val, pred_val] = np.sum((ground_truths == true_val) & (predictions == pred_val))
 
         # Normalize by row (ground truth)
         confusion_norm = confusion / confusion.sum(axis=1, keepdims=True)
 
         # Print confusion matrix to console
+        balanced_acc = calculate_balanced_accuracy(predictions, ground_truths)
         print(f'\n{model_name} Confusion Matrix:')
-        print('='*50)
-        print(f'{"":15s} {"Pred Fixate":>12s} {"Pred Match":>12s}')
-        print('-'*50)
-        for i, true_label in enumerate(['True Fixate', 'True Match']):
+        print('='*70)
+        print(f'{"":15s} {"Pred Fixate":>14s} {"Pred Match":>14s} {"Pred Non-Match":>18s}')
+        print('-'*70)
+        for i, true_label in enumerate(['True Fixate', 'True Match', 'True Non-Match']):
             print(f'{true_label:15s}', end='')
-            for j in range(2):
+            for j in range(num_classes):
                 count = int(confusion[i, j])
                 pct = confusion_norm[i, j]
                 print(f' {count:4d} ({pct:5.1%})', end='')
             print()
         accuracy = np.sum(predictions == ground_truths) / len(predictions)
         print(f'\nAccuracy: {accuracy:.3f}')
-        print(f'Predicted Fixate: {np.sum(predictions == 0)}/{len(predictions)} ({np.mean(predictions == 0):.1%})')
-        print(f'Predicted Match:  {np.sum(predictions == 1)}/{len(predictions)} ({np.mean(predictions == 1):.1%})')
+        print(f'Balanced Accuracy: {balanced_acc:.3f}')
+        print(f'Predicted Fixate:    {np.sum(predictions == 0)}/{len(predictions)} ({np.mean(predictions == 0):.1%})')
+        print(f'Predicted Match:     {np.sum(predictions == 1)}/{len(predictions)} ({np.mean(predictions == 1):.1%})')
+        print(f'Predicted Non-Match: {np.sum(predictions == 2)}/{len(predictions)} ({np.mean(predictions == 2):.1%})')
 
         ax = axes[idx]
         im = ax.imshow(confusion_norm, cmap='Blues', vmin=0, vmax=1)
 
         # Add text annotations
-        for i in range(2):
-            for j in range(2):
+        for i in range(num_classes):
+            for j in range(num_classes):
                 count = int(confusion[i, j])
                 pct = confusion_norm[i, j]
                 text = f'{count}\n({pct:.1%})'
-                ax.text(j, i, text, ha='center', va='center', fontsize=11,
+                ax.text(j, i, text, ha='center', va='center', fontsize=9,
                        color='white' if pct > 0.5 else 'black', fontweight='bold')
 
-        ax.set_xticks([0, 1])
-        ax.set_yticks([0, 1])
+        ax.set_xticks([0, 1, 2])
+        ax.set_yticks([0, 1, 2])
         ax.set_xticklabels(action_names, fontsize=9)
         ax.set_yticklabels(action_names, fontsize=9)
         ax.set_xlabel('Predicted', fontsize=10)
         ax.set_ylabel('Ground Truth', fontsize=10)
 
         accuracy = np.sum(predictions == ground_truths) / len(predictions)
-        ax.set_title(f'{model_name}\nAccuracy: {accuracy:.3f}', fontsize=11, fontweight='bold')
+        bal_acc_plot = calculate_balanced_accuracy(predictions, ground_truths)
+        ax.set_title(f'{model_name}\nAcc: {accuracy:.3f} | Bal Acc: {bal_acc_plot:.3f}', fontsize=11, fontweight='bold')
 
         # Add colorbar
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -420,7 +442,7 @@ def analyze_prediction_confusion(all_trial_data, models_dict, env, output_path='
 
 if __name__ == '__main__':
     print("="*70)
-    print("Question 2c: Analysis of DelayMatchSampleDistractor1D Results")
+    print("Question 2c: Analysis of DelayMatchSample Results")
     print("="*70)
     print()
 
@@ -472,13 +494,7 @@ if __name__ == '__main__':
     print("Models reconstructed successfully")
     print()
 
-    trial_data_dict = {
-        'vanilla': checkpoint['vanilla_data'],
-        'leaky': checkpoint['leaky_data'],
-        'leaky_fa': checkpoint['leaky_fa_data'],
-        'bio': checkpoint['bio_data']
-    }
-
+    trial_data_dict = checkpoint['trial_data_dict']
     loss_dict = checkpoint['loss_dict']
     perf_dict = checkpoint['perf_dict']
 

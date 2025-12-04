@@ -9,7 +9,8 @@ from Question_2a import Net
 import torch.optim as optim
 
 
-def evaluate_model_balanced(net, env, num_trials=500):
+def evaluate_model_bandit(net, env, num_trials=500):
+    """Evaluate model on Bandit task with detailed metrics."""
     net.eval()
     device = next(net.parameters()).device
 
@@ -18,8 +19,11 @@ def evaluate_model_balanced(net, env, num_trials=500):
         'trial_info': [],
         'correct': [],
         'predictions': [],
-        'ground_truths': []
+        'ground_truths': [],
+        'rewards': []
     }
+
+    total_reward = 0.0
 
     with torch.no_grad():
         for i in range(num_trials):
@@ -33,42 +37,31 @@ def evaluate_model_balanced(net, env, num_trials=500):
             choice = np.argmax(action_pred[-1, 0, :])
             correct = (choice == gt[-1])
 
+            # Get reward for this choice
+            trial_info = env.unwrapped.trial
+            reward = trial_info.get('reward', 0.0) if correct else 0.0
+            total_reward += reward
+
             trial_data['activities'].append(rnn_activity[:, 0, :].detach().cpu().numpy())
-            trial_data['trial_info'].append(env.unwrapped.trial)
+            trial_data['trial_info'].append(trial_info)
             trial_data['correct'].append(correct)
             trial_data['predictions'].append(choice)
             trial_data['ground_truths'].append(gt[-1])
-
-    predictions = np.array(trial_data['predictions'])
-    ground_truths = np.array(trial_data['ground_truths'])
-
-    unique_classes = np.unique(ground_truths)
-    per_class_recalls = []
-
-    for cls in unique_classes:
-        mask = ground_truths == cls
-        if np.sum(mask) > 0:
-            recall = np.sum((predictions == cls) & mask) / np.sum(mask)
-            per_class_recalls.append(recall)
+            trial_data['rewards'].append(reward)
 
     performance = np.mean(trial_data['correct'])
-    balanced_acc = np.mean(per_class_recalls) if per_class_recalls else 0.0
+    avg_reward = total_reward / num_trials
 
-    return performance, balanced_acc, trial_data
+    return performance, avg_reward, trial_data
 
 
-def train_model_with_lr_decay(net, dataset, num_steps=5000, lr=0.001, print_step=200,
-                              beta_L1=0.0, beta_L2=0.0, class_weights=None,
-                              use_decision_masking=False):
+def train_model_with_lr_decay_bandit(net, dataset, num_steps=5000, lr=0.001, print_step=200,
+                                      beta_L1=0.0, beta_L2=0.0, class_weights=None):
+    """Training function for Bandit task with learning rate decay."""
     optimizer = optim.Adam(net.parameters(), lr=lr)
     device = next(net.parameters()).device
 
-    # Decision masking: only train on decision timesteps (not fixation)
-    # This solves the 72% fixation / 28% decision imbalance problem
-    if use_decision_masking:
-        criterion = nn.CrossEntropyLoss(reduction='none')  # Per-sample loss for masking
-        print("  Using decision-only loss masking (train only on classes 1 & 2)")
-    elif class_weights is not None:
+    if class_weights is not None:
         criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
     else:
         criterion = nn.CrossEntropyLoss()
@@ -100,14 +93,7 @@ def train_model_with_lr_decay(net, dataset, num_steps=5000, lr=0.001, print_step
         output = output.view(-1, output.size(-1))
 
         # Task loss
-        if use_decision_masking:
-            # Only compute loss on decision timesteps (where label != 0)
-            loss_per_sample = criterion(output, labels)
-            decision_mask = (labels != 0).float()
-            task_loss = (loss_per_sample * decision_mask).sum() / (decision_mask.sum() + 1e-8)
-        else:
-            task_loss = criterion(output, labels)
-
+        task_loss = criterion(output, labels)
         loss = task_loss
 
         # L1 regularization on weights (sparse connectivity)
@@ -151,8 +137,6 @@ def train_model_with_lr_decay(net, dataset, num_steps=5000, lr=0.001, print_step
 
 
 # Use GPU if available for faster training
-# Note: MPS (Apple Silicon GPU) can be slower than CPU for RNNs due to overhead
-# Set USE_MPS = True to try GPU, or False to force CPU (often faster for RNNs)
 USE_MPS = False
 
 if torch.cuda.is_available():
@@ -166,7 +150,6 @@ print(f"Using device: {device}")
 
 if __name__ == '__main__':
     # ============ TRAINING TOGGLES ============
-    # Set to False to skip training models (faster iteration)
     TRAIN_VANILLA = True
     TRAIN_LEAKY = True
     TRAIN_LEAKY_FA = True
@@ -174,34 +157,28 @@ if __name__ == '__main__':
 
     # Quick test mode (faster but less accurate)
     QUICK_TEST = False  # Set to True for faster testing with fewer steps
-
-    # Decision masking: Only train on decision timesteps (not fixation)
-    # DOESN'T WORK: RNNs need gradient from fixation to learn temporal dynamics!
-    # Use balanced class weights instead
-    USE_DECISION_MASKING = False  # Keep False - pure masking breaks RNN learning
-
-    # Speed tips:
-    # - QUICK_TEST=True: 3k steps (~1-2 min/model) vs 10k steps (~3-5 min/model)
-    # - Batch size increased: 16→64 for ~2-3x speedup via better parallelization
-    # - MPS GPU disabled (USE_MPS=False above) - CPU is faster for RNNs on Mac
-    # - Fastest: QUICK_TEST=True + train only Leaky RNN = ~1 minute total
-    # - Skip slow models: TRAIN_VANILLA=False, TRAIN_LEAKY_FA=False, TRAIN_BIO=False
     # ==========================================
 
     print("=" * 70)
-    print("Question 2c: Training Models on DelayMatchSample Task")
+    print("Question 2: Training Models on Bandit-v0 Task")
     print("=" * 70)
     print(f"\nTraining: Vanilla={TRAIN_VANILLA}, Leaky={TRAIN_LEAKY}, "
           f"Leaky+FA={TRAIN_LEAKY_FA}, Bio={TRAIN_BIO}\n")
 
-    print("[1] Setting up NeuroGym DelayMatchSample task (without distractors)...")
-    task = 'DelayMatchSample-v0'
-    kwargs_env = {'dt': 20}
-    seq_len = 160  # Natural trial length for DMS task at dt=20 (was 200, causing padding issues)
+    print("[1] Setting up NeuroGym Bandit-v0 task...")
+    task = 'Bandit-v0'
 
-    # Larger batch size = faster training (more parallelization)
-    # 64 is a good balance between speed and memory usage
-    batch_size = 64 if not QUICK_TEST else 32  # Smaller batch for quick test to reduce overhead
+    # Bandit task configuration
+    # n=2 means 2-arm bandit (2 choices)
+    # p=(0.8, 0.2) means arm 1 has 80% reward prob, arm 2 has 20%
+    kwargs_env = {
+        'dt': 100,
+        'n': 2,  # 2-arm bandit
+        'p': (0.8, 0.2),  # Different reward probabilities
+    }
+
+    seq_len = 100  # Bandit trials are short
+    batch_size = 64 if not QUICK_TEST else 32
 
     dataset = ngym.Dataset(task, env_kwargs=kwargs_env, batch_size=batch_size, seq_len=seq_len)
     env = dataset.env
@@ -213,38 +190,35 @@ if __name__ == '__main__':
     common_lr = 0.002
     common_noise = 0.1
 
+    print(f"Task: {task}")
+    print(f"Input size: {input_size}")
+    print(f"Output size: {output_size} (fixation + {kwargs_env['n']} arms)")
+    print(f"Hidden size: {hidden_size}")
+
     # Adjust training duration based on mode
     if QUICK_TEST:
-        num_steps = 3000  # Quick test: ~1-2 minutes per model
-        num_eval_trials = 200  # Fewer evaluation trials
+        num_steps = 3000
+        num_eval_trials = 200
         print(">>> QUICK TEST MODE: Using 3000 steps <<<\n")
     else:
-        num_steps = 10000  # Full training: ~5-7 minutes per model (was 15k, reduced for speed)
-        num_eval_trials = 500  # More evaluation trials for accuracy
+        num_steps = 10000
+        num_eval_trials = 500
 
-    # Class weighting strategy:
-    # Use inverse frequency weighting to balance the 72% fixation / 28% decision imbalance
-    # Class 0 (fixation): 71.9% → weight = 1.0
-    # Class 1 (match): 14.2% → weight = 71.9/14.2 ≈ 5.0
-    # Class 2 (non-match): 13.9% → weight = 71.9/13.9 ≈ 5.2
-    # Normalized to reasonable range: [1.0, 5.0, 5.0]
-    class_weights = torch.tensor([1.0, 5.0, 5.0], dtype=torch.float32).to(device)
-
-    if USE_DECISION_MASKING:
-        print(f"Training strategy: Decision-only masking (NOT RECOMMENDED - breaks RNN learning)")
-        class_weights = None  # Don't use class weights with masking
-    else:
-        print(f"Training strategy: Balanced class weights {class_weights.tolist()}")
-        print(f"  Fixation weighted 1x, decisions weighted 5x (compensates for imbalance)")
+    # For Bandit task, we want the model to learn to choose the better arm
+    # Most timesteps are fixation, so we weight the decision timesteps higher
+    class_weights = torch.tensor([1.0, 3.0, 3.0], dtype=torch.float32).to(device)
+    print(f"Training strategy: Balanced class weights {class_weights.tolist()}")
+    print(f"  Fixation weighted 1x, decisions weighted 3x")
 
     loss_dict = {}
     perf_dict = {}
+    reward_dict = {}
     trial_data_dict = {}
     models_dict = {}
 
     # ---------------- Vanilla ----------------
     if TRAIN_VANILLA:
-        print("[2] Training Vanilla RNN...")
+        print("\n[2] Training Vanilla RNN...")
         print("-" * 70)
         net_vanilla = Net(
             input_size=input_size,
@@ -253,21 +227,24 @@ if __name__ == '__main__':
             model_type='vanilla'
         ).to(device)
 
-        loss_vanilla = train_model_with_lr_decay(
+        loss_vanilla = train_model_with_lr_decay_bandit(
             net_vanilla, dataset, num_steps=num_steps, lr=common_lr,
-            class_weights=class_weights, use_decision_masking=USE_DECISION_MASKING
+            class_weights=class_weights
         )
-        perf_vanilla, bal_acc_vanilla, data_vanilla = evaluate_model_balanced(net_vanilla, env, num_trials=num_eval_trials)
+        perf_vanilla, reward_vanilla, data_vanilla = evaluate_model_bandit(
+            net_vanilla, env, num_trials=num_eval_trials
+        )
 
         loss_dict['vanilla'] = loss_vanilla
         perf_dict['vanilla'] = perf_vanilla
+        reward_dict['vanilla'] = reward_vanilla
         trial_data_dict['vanilla'] = data_vanilla
         models_dict['vanilla'] = net_vanilla
 
-        print(f"Vanilla RNN - Accuracy: {perf_vanilla:.3f}, Balanced Accuracy: {bal_acc_vanilla:.3f}")
+        print(f"Vanilla RNN - Accuracy: {perf_vanilla:.3f}, Avg Reward: {reward_vanilla:.3f}")
         print()
     else:
-        print("[2] Skipping Vanilla RNN\n")
+        print("\n[2] Skipping Vanilla RNN\n")
 
     # ---------------- Leaky ----------------
     if TRAIN_LEAKY:
@@ -283,18 +260,21 @@ if __name__ == '__main__':
             sigma_rec=common_noise
         ).to(device)
 
-        loss_leaky = train_model_with_lr_decay(
+        loss_leaky = train_model_with_lr_decay_bandit(
             net_leaky, dataset, num_steps=num_steps, lr=common_lr,
-            class_weights=class_weights, use_decision_masking=USE_DECISION_MASKING
+            class_weights=class_weights
         )
-        perf_leaky, bal_acc_leaky, data_leaky = evaluate_model_balanced(net_leaky, env, num_trials=num_eval_trials)
+        perf_leaky, reward_leaky, data_leaky = evaluate_model_bandit(
+            net_leaky, env, num_trials=num_eval_trials
+        )
 
         loss_dict['leaky'] = loss_leaky
         perf_dict['leaky'] = perf_leaky
+        reward_dict['leaky'] = reward_leaky
         trial_data_dict['leaky'] = data_leaky
         models_dict['leaky'] = net_leaky
 
-        print(f"Leaky RNN - Accuracy: {perf_leaky:.3f}, Balanced Accuracy: {bal_acc_leaky:.3f}")
+        print(f"Leaky RNN - Accuracy: {perf_leaky:.3f}, Avg Reward: {reward_leaky:.3f}")
         print()
     else:
         print("[3] Skipping Leaky RNN\n")
@@ -313,18 +293,21 @@ if __name__ == '__main__':
             sigma_rec=common_noise
         ).to(device)
 
-        loss_leaky_fa = train_model_with_lr_decay(
+        loss_leaky_fa = train_model_with_lr_decay_bandit(
             net_leaky_fa, dataset, num_steps=num_steps, lr=common_lr,
-            class_weights=class_weights, use_decision_masking=USE_DECISION_MASKING
+            class_weights=class_weights
         )
-        perf_leaky_fa, bal_acc_leaky_fa, data_leaky_fa = evaluate_model_balanced(net_leaky_fa, env, num_trials=num_eval_trials)
+        perf_leaky_fa, reward_leaky_fa, data_leaky_fa = evaluate_model_bandit(
+            net_leaky_fa, env, num_trials=num_eval_trials
+        )
 
         loss_dict['leaky_fa'] = loss_leaky_fa
         perf_dict['leaky_fa'] = perf_leaky_fa
+        reward_dict['leaky_fa'] = reward_leaky_fa
         trial_data_dict['leaky_fa'] = data_leaky_fa
         models_dict['leaky_fa'] = net_leaky_fa
 
-        print(f"Leaky RNN + FA - Accuracy: {perf_leaky_fa:.3f}, Balanced Accuracy: {bal_acc_leaky_fa:.3f}")
+        print(f"Leaky RNN + FA - Accuracy: {perf_leaky_fa:.3f}, Avg Reward: {reward_leaky_fa:.3f}")
         print()
     else:
         print("[4] Skipping Leaky RNN + FA\n")
@@ -344,23 +327,25 @@ if __name__ == '__main__':
             exc_ratio=0.8
         ).to(device)
 
-        loss_bio = train_model_with_lr_decay(
+        loss_bio = train_model_with_lr_decay_bandit(
             net_bio, dataset, num_steps=num_steps, lr=common_lr,
-            beta_L1=0.0001, beta_L2=0.005, class_weights=class_weights,
-            use_decision_masking=USE_DECISION_MASKING
+            beta_L1=0.0001, beta_L2=0.005, class_weights=class_weights
         )
-        perf_bio, bal_acc_bio, data_bio = evaluate_model_balanced(net_bio, env, num_trials=num_eval_trials)
+        perf_bio, reward_bio, data_bio = evaluate_model_bandit(
+            net_bio, env, num_trials=num_eval_trials
+        )
 
         loss_dict['bio'] = loss_bio
         perf_dict['bio'] = perf_bio
+        reward_dict['bio'] = reward_bio
         trial_data_dict['bio'] = data_bio
         models_dict['bio'] = net_bio
 
-        print(f"Bio-Realistic RNN - Accuracy: {perf_bio:.3f}, Balanced Accuracy: {bal_acc_bio:.3f}")
+        print(f"Bio-Realistic RNN - Accuracy: {perf_bio:.3f}, Avg Reward: {reward_bio:.3f}")
         print()
     else:
         print("[5] Skipping Bio-Realistic RNN\n")
-    
+
     # ---------------- Summary ----------------
     print("[6] Performance Summary:")
     print("-" * 70)
@@ -372,7 +357,7 @@ if __name__ == '__main__':
     }
     for key, label in label_map.items():
         if key in perf_dict:
-            print(f"{label:20s} {perf_dict[key]:.3f}")
+            print(f"{label:20s} Acc: {perf_dict[key]:.3f}, Reward: {reward_dict[key]:.3f}")
         else:
             print(f"{label:20s} (not trained)")
     print()
@@ -385,8 +370,10 @@ if __name__ == '__main__':
     save_payload = {
         'loss_dict': loss_dict,
         'perf_dict': perf_dict,
+        'reward_dict': reward_dict,
         'trial_data_dict': trial_data_dict,
-        'env_config': {'dt': env.dt, 'task': task, 'seq_len': seq_len}
+        'env_config': {'dt': env.dt, 'task': task, 'seq_len': seq_len,
+                      'n_arms': kwargs_env['n'], 'probs': kwargs_env['p']}
     }
 
     # Only save models that were actually trained
@@ -399,27 +386,24 @@ if __name__ == '__main__':
     if 'bio' in models_dict:
         save_payload['bio_model'] = models_dict['bio'].state_dict()
 
-    torch.save(save_payload, 'checkpoints/question_2c_models_and_data.pt')
-    print("Saved: checkpoints/question_2c_models_and_data.pt")
+    torch.save(save_payload, 'checkpoints/question_2_bandit_models_and_data.pt')
+    print("Saved: checkpoints/question_2_bandit_models_and_data.pt")
     print()
 
     print("=" * 70)
     print("Training Complete!")
     print("=" * 70)
-    print("\nTask: DelayMatchSample-v0 (Working Memory - NO Distractors)")
-    print("Key differences from ReadySetGo (timing task):")
-    print("  - Requires maintaining stimulus information during delay period")
-    print("  - Must match sample stimulus to test stimulus after delay")
-    print("  - Tests working memory capacity without distractor interference")
-    print("  - Simpler than distractor variant - focuses on pure memory")
+    print("\nTask: Bandit-v0 (Multi-Armed Bandit)")
+    print("Key characteristics:")
+    print("  - Decision-making task: choose between multiple arms")
+    print("  - Reward probabilities: Arm 1 = 80%, Arm 2 = 20%")
+    print("  - Tests exploration vs exploitation trade-off")
+    print("  - Requires learning reward statistics over time")
     print("\nExpected Performance:")
-    print("  - Leaky RNN: Should achieve high accuracy (~100%)")
-    print("    * Time constant (tau) provides memory effect needed for working memory")
-    print("    * Leaky integration: new_state = 0.8*old + 0.2*input maintains info")
-    print("  - Vanilla RNN: May struggle (~50-60% accuracy)")
-    print("    * Lacks explicit time constant, harder to maintain delay period info")
-    print("  - Bio-realistic models: Performance depends on biological constraints")
-    print("    * Dale's Law and sparsity may help or hurt depending on task structure")
+    print("  - Optimal strategy: Always choose Arm 1 (80% reward)")
+    print("  - Perfect learner: 80% accuracy (matching optimal arm probability)")
+    print("  - Random baseline: 50% accuracy")
+    print("  - All models should learn to prefer the higher reward arm")
     print("\nNext steps:")
-    print("  Run Question_2c_analysis.py to generate visualizations and analysis")
+    print("  Run Question_2_bandit_analysis.py to generate visualizations and analysis")
     print("=" * 70)
