@@ -220,6 +220,7 @@ def plot_heatmaps(trial_data, output_path='images/question_2D_RSG_heatmaps.png')
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     models = list(trial_data.keys())
     fig, axes = plt.subplots(2, 2, figsize=(14, 12), sharex=True, sharey=True)
+    im = None
     for ax, key in zip(axes.flatten(), models):
         acts_list = [a for a, ok in zip(trial_data[key]['activities'], trial_data[key]['correct']) if ok]
         if len(acts_list) == 0:
@@ -232,7 +233,8 @@ def plot_heatmaps(trial_data, output_path='images/question_2D_RSG_heatmaps.png')
         ax.set_title(key, fontsize=14, fontweight='bold')
         ax.set_xlabel('Time (bins)')
         ax.set_ylabel('Hidden unit')
-    fig.colorbar(im, ax=axes.ravel().tolist(), fraction=0.025, pad=0.02, label='Activity')
+    if im is not None:
+        fig.colorbar(im, ax=axes.ravel().tolist(), fraction=0.025, pad=0.02, label='Activity')
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()

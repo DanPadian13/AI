@@ -102,7 +102,7 @@ def plot_training_all(histories, params=None, output_path='images/question_2d_re
 
 
 def train_dqn_models(task='ReadySetGo-v0', dt=20, num_episodes=3000, gamma=0.99,
-                     epsilon_start=1.0, epsilon_end=0.05, epsilon_decay=2500,
+                     epsilon_start=1.0, epsilon_end=0.02, epsilon_decay=2500,
                      batch_size=64, target_update=100, lr=1e-3,
                      hidden_size=64, device='cpu'):
     env_kwargs = {'dt': dt}
