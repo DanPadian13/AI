@@ -326,7 +326,7 @@ if __name__ == '__main__':
 
         loss_bio = train_model_with_lr_decay(
             net_bio, dataset, num_steps=num_steps, lr=common_lr,
-            beta_L1=0.0001, beta_L2=0.005, class_weights=class_weights
+            beta_L1=0.0005, beta_L2=0.01, class_weights=class_weights
         )
         perf_bio, bal_acc_bio, data_bio = evaluate_model_balanced(
             net_bio, env, num_trials=num_eval_trials

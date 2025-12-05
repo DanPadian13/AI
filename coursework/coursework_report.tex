@@ -204,7 +204,7 @@ Standard gated architectures (LSTMs, GRUs) achieve strong performance but rely o
 %-----------------------------------------------------------------------------
 % QUESTION 2A: MODEL IMPLEMENTATION (Max 3 pages)
 %-----------------------------------------------------------------------------
-\subsection{Question 2a: Model Implementation [10 marks]}
+\subsection{Question 2a: Model Implementation [10 marks / 3 pages]}
 \label{sec:question2a}
 
 % Initially, train and compare at least two models:
@@ -335,7 +335,7 @@ All models converge successfully, with every architecture achieving low task los
 % QUESTION 2B: ANALYSIS OF TRAINED MODELS (Max 4 pages)
 %-----------------------------------------------------------------------------
 \newpage
-\subsection{Question 2b: Hidden Unit Activity Analysis [20 marks]}
+\subsection{Question 2b: Hidden Unit Activity Analysis [20 marks / 4 pages]}
 \label{sec:question2b}
 
 % Analyze how trained models solve the task
@@ -410,36 +410,126 @@ Critically, all models encode time geometrically—Set cue position varies along
 %-----------------------------------------------------------------------------
 
 \newpage
-\subsection{Question 2c: Second Task Analysis [20 marks]}
+\subsection{Question 2c: Second Task Analysis [20 marks / 4 pages]}
 \label{sec:question2c}
 
-elio does delay match sample
-
-% Train same models on a second NeuroGym task
-% Analyze as in 2b
-% Do conclusions from 2b hold?
+Now we will take the models from section \ref{sec:question2a} and will train them on a different tasks from the neuro gym library, once again analysing their performance and to see if the hidden neurons act the same way to see how the models learn to complete the task separately. 
 
 \subsubsection{Task Description}
 
-[Describe second task - e.g., PerceptualDecisionMaking, ContextDecisionMaking, etc.]
+The second task is \texttt{MultiSensoryIntegration-v0}. Figure \ref{fig:q2_multisensory_task_structure} depicts howe ach trial presents two simultaneous sensory streams (modality 1 and modality 2), each with left/right channels. Inputs are five streams: fixation (row 1), mod1-left/right (rows 2--3), mod2-left/right (rows 4--5). A trial’s difficulty is set by (i) \textbf{coh} -- the evidence strength (higher = cleaner signal, lower = noisy) and (ii) \textbf{coh\_prop} -- the fraction of evidence assigned to modality 1 vs. modality 2 (near 1 biases mod1, near 0 biases mod2). The agent should fixate during the cue, integrate both modalities, and emit a single binary decision (The top row, green=left/red=right) when fixation ends.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/q2_multisensory_task_structure.png}
+    \caption{Task structure (three concatenated trials): fixation, modality 1 (L/R), modality 2 (L/R), and decision band (green=left, red=right).}
+    \label{fig:q2_multisensory_task_structure}
+\end{figure}
+
+The network’s job is to combine modality-specific evidence (weighted by \textbf{coh\_prop}), respect fixation, and classify left vs. right. This demands evidence integration rather than timing like the ReadySetGo task required.
 
 \subsubsection{Training and Performance}
 
-[Learning curves, performance table for second task]
+All four architectures from Question 2a were trained in supervised mode on \texttt{MultiSensoryIntegration-v0} via the NeuroGym dataset (cross-entropy, mini-batches, scheduled LR drops). Loss decays smoothly and stabilises by \(\sim\)8k steps (log y-axis in Fig.~\ref{fig:q2_multisensory_training_curves}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/q2_multisensory_training_curves.png}
+    \caption{Training loss (log scale) for all architectures; y-lim fixed to 0.05–0.20.}
+    \label{fig:q2_multisensory_training_curves}
+\end{figure}
+
+\begin{table}[h!]
+\centering
+\small
+\setlength{\tabcolsep}{12pt}
+\begin{tabular}{c c c c}
+\hline
+\textbf{Vanilla RNN} & \textbf{Leaky RNN} & \textbf{Leaky + FA} & \textbf{Bio-realistic} \\
+\hline
+0.926 & 0.904 & 0.898 & 0.898 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+All models reach high accuracy; vanilla is best by a small margin. FA and bio constraints impose only minor drops, showing that approximate feedback and sparse E/I structure still support reliable multisensory integration.
+
+Confusion matrices (rows = true \{Left, Right\}, cols = pred \{Left, Right\}):
+\begin{center}
+\begin{tabular}{c c c c}
+Vanilla & Leaky & Leaky+FA & Bio-realistic \\
+$\begin{bmatrix}230 & 27 \\ 10 & 233\end{bmatrix}$ &
+$\begin{bmatrix}234 & 15 \\ 33 & 218\end{bmatrix}$ &
+$\begin{bmatrix}218 & 20 \\ 31 & 231\end{bmatrix}$ &
+$\begin{bmatrix}210 & 19 \\ 32 & 239\end{bmatrix}$ \\
+\end{tabular}
+\end{center}
 
 \subsubsection{Hidden Unit Analysis}
 
-[Trajectories, heatmaps, ramping for second task]
+PCA (Fig.~\ref{fig:q2_multisensory_pca}) shows each model carves out clean left/right clusters in a low-dimensional subspace, but with different variance footprints. Vanilla packs \(\sim95\%\) into PC1–2; leaky/FA spill more into PC2; the bio model compresses hardest because of sparsity. The task geometry stays intact, yet the biologically constrained variants live in a tighter, lower-dimensional manifold. 
+
+The PCA shows that each model’s trial averaged hidden states cluster by decision (left vs. right) in a low-dimensional space. It’s not about individual neurons being exclusively assigned to a side; rather, the population activity for left trials versus right trials occupies distinct regions along the first two principal components. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/q2_multisensory_pca.png}
+    \caption{PCA of per-trial mean hidden states (rows = models, colored by decision).}
+    \label{fig:q2_multisensory_pca}
+\end{figure}
+
+
+Heatmaps (Fig.~\ref{fig:q2_multisensory_heatmaps}) highlight style differences: vanilla/leaky spread activity widely, while bio is starkly sparse (only \(\sim\)10–15/64 units ever engage, with a handful dominating at decision). Leaky/FA sit quiet through the cue then burst near decision; vanilla hums along continuously; bio stays frugal end-to-end, in line with its E/I + L1/L2 constraints. The bio model’s sparse, low-rate profile echoes cortical recordings (selective, energy-efficient), but is also less robust—performance dips if a few dominant units misfire.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/q2_multisensory_heatmaps.png}
+    \caption{Hidden-unit activity heatmaps (correct trials, averaged) for all models.}
+    \label{fig:q2_multisensory_heatmaps}
+\end{figure}
+
+Choice decoding rises near the decision window for all architectures; vanilla/leaky reach higher decoding earlier, whereas FA/bio peaks lag by \(\sim\)tens of ms, consistent with slower evidence accumulation under approximate feedback/sparsity. Overall, biological constraints mainly compress dimensionality and induce sparsity without disrupting task-relevant geometry—trading a bit of speed/robustness for neural realism.
+
+
+
+
 
 \subsubsection{Cross-Task Comparison}
 
-[Do bio-realistic models generalize better? Are computational strategies similar? What differs?]
+Compared to ReadySetGo timing, all models transfer well to evidence integration, but architectural constraints change the strategy: sparsity and FA reduce dimensionality and delay choice-readout timing while maintaining accuracy. The bio and FA models remain slightly less confident/earlier-decoding than vanilla on both tasks, indicating a consistent trade-off between biological plausibility and speed of reliable readout, rather than a task-specific deficit.
 
 %-----------------------------------------------------------------------------
 % QUESTION 2D: ORIGINAL CONTRIBUTION (Max 4 pages)
 %-----------------------------------------------------------------------------
 \newpage
-\subsection{Question 2d: Original Contribution [20 marks]}
+\subsection{Question 2d: Original Contribution [20 marks / 4 pages]}
+\label{sec:question2d}
+
+
+In this original contribution section the idea of reinforcement learning and its biologically plausibility will be assessd, using the same mdoels again from section \ref{sec:question2a} the models will be adapted to now use reinforcement learning which in its self is slightly more biologically plausible as supervised learning as humans and brain s...  Firslty we get it to learn the ready set go task from section \ref{sec:question2b}.
+
+the new ReadySetGo DQN script, the four recurrent
+architectures from Q2a (vanilla, leaky, leaky+FA,
+bio-realistic) are used as Q-networks: for each
+timestep, they take the current observation, produce Q-values for the actions, and DQN trains them via replay, epsilon-greedy exploration, target networks, and a TD loss. Each model runs its own episodes; experience is stored in a per-model replay buffer and optimized with smooth L1 loss on the Q targets.
+
+Key differences from supervised training, Supervised: cross-entropy with provided labels for
+every timestep/episode; no exploration; gradients
+flow from known targets. DQN (RL): no labels; only scalar rewards; Q-targets are bootstrapped (r + γ max Q’); actions are chosen via epsilon-greedy;  replay buffer/target net stabilize off-policy learning. Models are identical architecturally, but the
+learning signal is TD error from rewards, not
+teacher signals. This makes learning slower/more
+unstable but closer to reward-driven, model-free
+learning.
+
+In the ReadySetGo DQN setup, the four architectures of 2a now serve as the Q-function approximators. Vanilla uses an unconstrained recurrent core; Leaky adds temporal smoothing; Leaky+FA uses fixed random feedback for approximate credit assignment; Bio-realistic  imposes E/I structure and sparsity. They all share the same RL machinery—epsilon-greedy exploration, replay buffer, target networks, and a TD loss—but their recurrent dynamics and learning constraints shape how quickly and robustly they learn Q-values from reward.
+
+As a result, Vanilla/Leaky typically converge faster and more stably, while FA’s random backward weights can slow or blur credit assignment, and the Bio model’s sparsity/E/I constraints compress capacity and make learning more fragile, albeit more “brain- like” in activity patterns. In RL, these differences show up in reward curves and policies (e.g., timing accuracy, exploration success): biologically inspired constraints trade a bit of speed and robustness for neural plausibility, yet all four can still learn the task under the same DQN training loop.
+
+
+
+
 
 \newpage
 \label{sec:question2d}
@@ -455,41 +545,12 @@ elio does delay match sample
 % Reference literature
 % Max 500 words
 
-This coursework investigated brain-inspired constraints in recurrent neural networks through systematic implementation and analysis on temporal cognitive tasks.
-
-\textbf{Key Findings:}
-
-\textbf{1. Biological constraints are compatible with learning:}
-Feedback alignment, Dale's principle, sparse connectivity, and L2 regularization did not impair task performance. The bio-realistic model achieved comparable accuracy to baseline (XXX\% vs XXX\%), demonstrating that biological plausibility and computational capability are not mutually exclusive.
-
-\textbf{2. Constraints improve neural interpretability:}
-Population dynamics in bio-realistic models exhibited more structured, organized trajectories in state space, similar to prefrontal cortex recordings \cite{remington2018}. Lower, more realistic firing rates and sparser activity patterns emerged naturally from L2 regularization and sparse connectivity.
-
-\textbf{3. Time constants are crucial for temporal processing:}
-Leaky integration ($\tau = 100$ms) proved essential for timing tasks, enabling networks to maintain information across delays. This aligns with computational neuroscience findings that time constants match task-relevant timescales.
-
-\textbf{4. Progressive addition reveals individual contributions:}
-The systematic approach revealed that feedback alignment addresses learning (weight transport problem), while architectural constraints (Dale's, sparsity) shape dynamics without sacrificing performance.
-
-\textbf{Implications:}
-
-\textbf{For Neuroscience:} Trained RNNs provide testable hypotheses about neural computation. The observation that biologically constrained models solve tasks similarly to brain recordings supports the "computation through dynamics" framework \cite{remington2018,churchland2012}.
-
-\textbf{For AI:} Biological principles offer design insights beyond mere performance. Sparse, structured networks with realistic dynamics may generalize better, require less data, and provide interpretable solutions - crucial for trustworthy AI.
-
-\textbf{Broader Context:}
-This work sits at the intersection of cognitive neuroscience and machine learning, where each field informs the other. As AI systems tackle increasingly cognitive tasks, incorporating biological principles may prove essential for human-like intelligence.
-
-\textbf{Future Directions:}
-Promising extensions include implementing homeostatic plasticity, testing on compositional tasks requiring generalization, and direct comparison to neural recordings during identical tasks. The framework established here provides foundation for exploring richer biological mechanisms.
-
-In conclusion, brain-inspired constraints enhance artificial neural networks not by limiting them to biological quirks, but by incorporating principles evolution discovered through optimizing for real-world intelligence. The success of these constraints suggests computational neuroscience and AI research are converging toward shared principles of intelligent computation.
 
 
 %=============================================================================
 % REFERENCES
 %=============================================================================
-\newpage
+
 \singlespacing
 \bibliographystyle{ieeetr}
 \bibliography{refs}

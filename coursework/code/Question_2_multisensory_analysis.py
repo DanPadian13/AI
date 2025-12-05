@@ -4,16 +4,19 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 import neurogym as ngym
 import os
+import matplotlib.ticker as mticker
 from sklearn.decomposition import PCA
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
 
 from Question_2a import Net
 
 device = torch.device('cpu')
 print(f"Using device: {device}")
 
-def plot_training_curves(loss_dict, output_path='images/q2_multisensory_training_curves.png'):
+def plot_training_curves(loss_dict, lr_schedule=None, output_path='images/q2_multisensory_training_curves.png'):
     """Plot training curves for all models."""
-    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+    fig, ax1 = plt.subplots(1, 1, figsize=(12, 7))
 
     colors = {'vanilla': '#1f77b4', 'leaky': '#ff7f0e',
               'leaky_fa': '#2ca02c', 'bio': '#d62728'}
@@ -22,14 +25,31 @@ def plot_training_curves(loss_dict, output_path='images/q2_multisensory_training
 
     for model_name, loss_history in loss_dict.items():
         steps = np.arange(len(loss_history)) * 200 + 200
-        ax.plot(steps, loss_history, label=labels[model_name],
-                color=colors[model_name], linewidth=2)
+        ax1.semilogy(steps, loss_history, label=labels[model_name],
+                     color=colors[model_name], linewidth=2.5)
 
-    ax.set_xlabel('Training Steps', fontsize=12)
-    ax.set_ylabel('Loss', fontsize=12)
-    ax.set_title('MultiSensoryIntegration-v0: Training Curves', fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
+    ax1.set_xlabel('Training Steps', fontsize=14)
+    ax1.set_ylabel('Loss (log scale)', fontsize=14)
+    ax1.set_title('MultiSensoryIntegration-v0: Training Curves', fontsize=16, fontweight='bold')
+    ax1.legend(fontsize=12)
+    ax1.tick_params(axis='both', which='major', labelsize=12)
+    ax1.set_ylim(0.05, 0.2)
+    ax1.set_yticks([0.05, 0.075, 0.1, 0.125, 0.15, 0.175, 0.2])
+    ax1.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
+    ax1.minorticks_off()
+    ax1.grid(True, alpha=0.3, which='both')
+
+    if lr_schedule is not None and len(lr_schedule) == len(next(iter(loss_dict.values()))):
+        ax2 = ax1.twinx()
+        steps = np.arange(len(lr_schedule)) * 200 + 200
+        ax2.plot(steps, lr_schedule, color='gray', linestyle='--', linewidth=2, label='Learning Rate')
+        ax2.set_ylabel('Learning Rate', fontsize=13, color='gray')
+        ax2.tick_params(axis='y', labelsize=12, colors='gray')
+        ax2.grid(False)
+        # Merge legends
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, fontsize=12, loc='upper right')
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
@@ -38,54 +58,84 @@ def plot_training_curves(loss_dict, output_path='images/q2_multisensory_training
 
 
 def plot_task_structure(env, output_path='images/q2_multisensory_task_structure.png'):
-    """Visualize the MultiSensoryIntegration task structure."""
-    fig, axes = plt.subplots(3, 1, figsize=(14, 11))
+    """Visualize task structure as a single continuous heatmap across trials."""
+    n_trials = 3
+    row_labels = ['Fixation', 'Mod1 Left', 'Mod1 Right', 'Mod2 Left', 'Mod2 Right']
+    data_list = []
+    decisions = []
 
-    for trial_idx in range(3):
+    for _ in range(n_trials):
         env.new_trial()
         ob, gt = env.ob, env.gt
         trial = env.trial
 
-        time = np.arange(len(ob)) * env.dt
-        ax = axes[trial_idx]
+        fix = ob[:, 0]
+        m1L, m1R = ob[:, 1], ob[:, 2]
+        m2L, m2R = ob[:, 3], ob[:, 4]
+        decision = np.where(gt == 1, 1.0, np.where(gt == 2, -1.0, 0.0))
+        data = np.stack([fix, m1L, m1R, m2L, m2R], axis=0)
+        data_list.append((data, trial, gt))
+        decisions.append(decision)
 
-        # Plot each sensory channel
-        colors = ['gray', 'blue', 'red', 'green', 'purple']
-        labels = ['Fixation', 'Modality 1', 'Modality 2', 'Modality 3', 'Modality 4']
+    total_len = sum(d.shape[1] for d, _, _ in data_list)
+    combined = np.zeros((len(row_labels), total_len))
+    boundaries = []
+    titles = []
+    decision_track = np.zeros(total_len)
 
-        for i in range(ob.shape[1]):
-            offset = i * 0.8
-            ax.plot(time, ob[:, i] + offset, color=colors[i],
-                   linewidth=2, label=labels[i], alpha=0.8)
-
-        # Plot ground truth action
-        gt_offset = ob.shape[1] * 0.8 + 0.5
-        ax.plot(time, gt + gt_offset, 'k-', linewidth=2.5, label='Ground Truth', alpha=0.9)
-
-        # Add trial info
+    cursor = 0
+    for idx, ((data, trial, gt), decision) in enumerate(zip(data_list, decisions)):
+        L = data.shape[1]
+        combined[:, cursor:cursor + L] = data
+        decision_track[cursor:cursor + L] = decision
+        boundaries.append(cursor)
         coh = trial.get('coh', 0)
         coh_prop = trial.get('coh_prop', 0)
-        final_action = gt[-1]
+        final_action = {0: 'Fixate', 1: 'Left', 2: 'Right'}.get(int(gt[-1]), str(gt[-1]))
+        titles.append(f'Trial {idx + 1}: coh={coh}, weight={coh_prop:.2f}, choice={final_action}')
+        cursor += L
+    boundaries.append(total_len)
 
-        action_labels = {0: 'Fixate', 1: 'Left', 2: 'Right'}
-        title_str = f'Trial {trial_idx + 1}: Coherence={coh}, Modality Weight={coh_prop:.2f}'
+    time = np.arange(total_len) * env.dt
 
-        ax.text(time[-1] * 0.95, gt_offset + final_action,
-               f'→ {action_labels[final_action]}',
-               fontsize=11, fontweight='bold', ha='right',
-               bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.7))
+    fig, ax = plt.subplots(figsize=(16, 8))
+    im = ax.imshow(combined, aspect='auto', cmap='viridis', origin='lower',
+                   extent=[time[0], time[-1], -0.5, combined.shape[0] - 0.5])
+    ax.set_yticks(np.arange(len(row_labels)))
+    ax.set_yticklabels(row_labels, fontsize=11)
+    ax.set_xlabel('Time (ms)', fontsize=16)
+    ax.set_xticklabels(ax.get_xticks(), fontsize=14)
+    ax.set_title('MultiSensoryIntegration-v0 task structure', fontsize=18, fontweight='bold')
 
-        ax.set_xlabel('Time (ms)', fontsize=11)
-        ax.set_ylabel('Input Activity', fontsize=11)
-        ax.set_title(title_str, fontsize=12, fontweight='bold')
-        ax.grid(True, alpha=0.3)
-        if trial_idx == 0:
-            ax.legend(loc='upper left', fontsize=9, ncol=3)
+    # Horizontal white grid lines separating rows
+    for y in np.arange(-0.5, combined.shape[0] + 0.5, 1.0):
+        ax.axhline(y, color='white', linewidth=0.8, alpha=0.7)
 
-    plt.suptitle('MultiSensoryIntegration-v0: Combining Multiple Sensory Inputs',
-                fontsize=14, fontweight='bold')
+    # Add a decision row as its own band (green=Left, red=Right, purple=0)
+    dec_row = np.zeros_like(decision_track)
+    dec_row = np.where(decision_track > 0, 1.0, np.where(decision_track < 0, -1.0, 0.0))
+    # Build a combined plot with an extra row for decision
+    dec_extent = [time[0], time[-1], combined.shape[0] - 0.5, combined.shape[0] + 0.5]
+    ax.imshow(dec_row[np.newaxis, :], aspect='auto', cmap='PiYG', origin='lower',
+              extent=[time[0], time[-1], combined.shape[0] - 0.5, combined.shape[0] + 0.5])
+    ax.axhline(combined.shape[0] - 0.5, color='black', linestyle='--', linewidth=0.8, alpha=0.5)
+    ax.set_ylim(-0.5, combined.shape[0] + 1.0)
+    yticks = list(ax.get_yticks())
+    ax.set_yticks(np.arange(len(row_labels) + 1))
+    ax.set_yticklabels(row_labels + ['Decision'])
+
+    # Removed vertical boundary lines for a cleaner view
+
+    # Annotate trials near top
+    for idx, (start, end) in enumerate(zip(boundaries[:-1], boundaries[1:])):
+        t_mid = time[start] + 0.5 * (time[end - 1] - time[start])
+        ax.text(t_mid, len(row_labels) - 0.05, titles[idx], ha='center', va='top', fontsize=15, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
+
+    cbar = plt.colorbar(im, ax=ax, fraction=0.025, pad=0.02)
+    cbar.set_label('Activation', fontsize=15)
+    cbar.ax.tick_params(labelsize=13)
+
     plt.tight_layout()
-
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"Saved: {output_path}")
@@ -147,80 +197,224 @@ def analyze_hidden_activity(trial_data, env, model_name, output_path_prefix='ima
     activities = np.array([trial_data['activities'][i] for i in range(len(trial_data['activities']))])
     correct_trials = np.array(trial_data['correct'])
     correct_activities = activities[correct_trials]
-
     avg_activity = np.mean(correct_activities, axis=0)
-
-    fig, axes = plt.subplots(2, 1, figsize=(14, 10))
-
     time = np.arange(avg_activity.shape[0]) * env.dt
 
-    # Heatmap
-    im = axes[0].imshow(avg_activity.T, aspect='auto', cmap='viridis',
-                        extent=[0, time[-1], 0, avg_activity.shape[1]])
-    axes[0].set_xlabel('Time (ms)', fontsize=11)
-    axes[0].set_ylabel('Hidden Unit', fontsize=11)
-    axes[0].set_title(f'{model_name}: Average Hidden Unit Activity (Correct Trials)',
-                     fontsize=12, fontweight='bold')
-    plt.colorbar(im, ax=axes[0], label='Activity')
+    # Heatmap-only grid (2x2) saved separately
+    def plot_heatmaps():
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12), sharex=True, sharey=True)
+        titles = ['Vanilla RNN', 'Leaky RNN', 'Leaky RNN + FA', 'Bio-Realistic RNN']
+        model_keys = ['vanilla', 'leaky', 'leaky_fa', 'bio']
+        for ax, key, title in zip(axes.flatten(), model_keys, titles):
+            td = trial_data_dict[key]
+            acts = np.array(td['activities'])[np.array(td['correct'])]
+            avg_act = acts.mean(axis=0)
+            im = ax.imshow(avg_act.T, aspect='auto', cmap='viridis',
+                           extent=[0, (avg_act.shape[0]-1)*env.dt, 0, avg_act.shape[1]])
+            ax.set_title(title, fontsize=15, fontweight='bold')
+            ax.set_xlabel('Time (ms)', fontsize=13)
+            ax.set_ylabel('Hidden Unit', fontsize=13)
+            ax.tick_params(axis='both', labelsize=12)
+        # Move colorbar to bottom spanning all axes
+        cbar_ax = fig.add_axes([0.2, 0.04, 0.6, 0.02])
+        cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal')
+        cbar.set_label('Activity', fontsize=13)
+        cbar.ax.tick_params(labelsize=12)
+        plt.tight_layout(rect=[0, 0.08, 1, 0.94])
+        os.makedirs(os.path.dirname(output_path_prefix), exist_ok=True)
+        plt.savefig('images/q2_multisensory_heatmaps.png', dpi=150, bbox_inches='tight')
+        plt.close()
 
-    # Time series
-    mean_activity = np.mean(avg_activity, axis=1)
-    std_activity = np.std(avg_activity, axis=1)
+    # Mean-activity grid (2x2) saved separately
+    def plot_mean_traces():
+        fig, axes = plt.subplots(2, 2, figsize=(16, 10), sharex=True)
+        titles = ['Vanilla RNN', 'Leaky RNN', 'Leaky RNN + FA', 'Bio-Realistic RNN']
+        model_keys = ['vanilla', 'leaky', 'leaky_fa', 'bio']
+        for ax, key, title in zip(axes.flatten(), model_keys, titles):
+            td = trial_data_dict[key]
+            acts = np.array(td['activities'])[np.array(td['correct'])]
+            avg_act = acts.mean(axis=0)
+            mean_activity = np.mean(avg_act, axis=1)
+            std_activity = np.std(avg_act, axis=1)
+            t = np.arange(avg_act.shape[0]) * env.dt
+            ax.plot(t, mean_activity, linewidth=2.2, color='blue', label='Mean')
+            ax.fill_between(t, mean_activity - std_activity, mean_activity + std_activity,
+                            alpha=0.25, color='blue', label='± 1 SD')
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        ax.set_xlabel('Time (ms)', fontsize=12)
+        ax.set_ylabel('Activity', fontsize=12)
+        ax.tick_params(axis='both', labelsize=11)
+        ax.grid(True, alpha=0.3)
+        axes[0,0].legend(fontsize=11, loc='upper left')
+        plt.tight_layout(rect=[0, 0.08, 1, 0.98])
+        handles, labels = axes[0,0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='lower center', ncol=2, fontsize=12)
+        os.makedirs(os.path.dirname(output_path_prefix), exist_ok=True)
+        plt.savefig('images/q2_multisensory_mean_activity.png', dpi=150, bbox_inches='tight')
+        plt.close()
 
-    axes[1].plot(time, mean_activity, linewidth=2, color='blue', label='Mean Activity')
-    axes[1].fill_between(time,
-                         mean_activity - std_activity,
-                         mean_activity + std_activity,
-                         alpha=0.3, color='blue', label='± 1 SD')
-    axes[1].set_xlabel('Time (ms)', fontsize=11)
-    axes[1].set_ylabel('Activity', fontsize=11)
-    axes[1].set_title(f'{model_name}: Mean Activity Across Units', fontsize=12, fontweight='bold')
-    axes[1].legend(fontsize=10)
-    axes[1].grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    output_path = f'{output_path_prefix}_{model_name.lower().replace(" ", "_")}_activity.png'
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    print(f"Saved: {output_path}")
-    plt.close()
+    # Defer plotting to the main routine where trial_data_dict is available
+    return plot_heatmaps, plot_mean_traces
 
 
-def plot_pca_hidden_states(trial_data, model_name, output_path_prefix='images/q2_multisensory'):
-    """Project per-trial mean hidden states onto first two PCs and color by action."""
-    activities = np.array(trial_data['activities'])  # [num_trials, T, H]
-    targets = np.array(trial_data['ground_truths'])
+def plot_pca_hidden_states_subplots(trial_data_dict, output_path='images/q2_multisensory_pca.png'):
+    """PCA scatter for each model on a 2x2 grid, colored by final action."""
+    model_order = [
+        ('vanilla', 'Vanilla RNN'),
+        ('leaky', 'Leaky RNN'),
+        ('leaky_fa', 'Leaky RNN + FA'),
+        ('bio', 'Bio-Realistic RNN'),
+    ]
 
-    if activities.ndim == 2:
-        activities = activities[None, :, :]
-
-    mean_states = activities.mean(axis=1)
-
-    pca = PCA(n_components=2)
-    proj = pca.fit_transform(mean_states)
-    var_exp = pca.explained_variance_ratio_ * 100
-
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
     colors = {0: '#7f7f7f', 1: '#1f77b4', 2: '#d62728'}
     labels = {0: 'Fixate', 1: 'Left', 2: 'Right'}
 
-    plt.figure(figsize=(7, 6))
-    for cls in np.unique(targets):
-        mask = targets == cls
-        plt.scatter(proj[mask, 0], proj[mask, 1],
-                    c=colors.get(int(cls), '#999999'), label=labels.get(int(cls), f'Class {cls}'),
-                    alpha=0.7, s=35, edgecolors='k', linewidths=0.3)
+    for ax, (key, name) in zip(axes.flatten(), model_order):
+        if key not in trial_data_dict:
+            ax.axis('off')
+            continue
 
-    plt.xlabel(f'PC1 ({var_exp[0]:.1f}% var)')
-    plt.ylabel(f'PC2 ({var_exp[1]:.1f}% var)')
-    plt.title(f'{model_name}: PCA of Trial-Averaged Hidden States')
-    plt.legend(fontsize=9)
-    plt.grid(True, alpha=0.3)
-    os.makedirs(os.path.dirname(output_path_prefix), exist_ok=True)
-    out_path = f'{output_path_prefix}_{model_name.lower().replace(" ", "_")}_pca.png'
-    plt.savefig(out_path, dpi=150, bbox_inches='tight')
+        trial_data = trial_data_dict[key]
+        activities = np.array(trial_data['activities'])
+        targets = np.array(trial_data['ground_truths'])
+
+        if activities.ndim == 2:
+            activities = activities[None, :, :]
+
+        mean_states = activities.mean(axis=1)
+
+        pca = PCA(n_components=2)
+        proj = pca.fit_transform(mean_states)
+        var_exp = pca.explained_variance_ratio_ * 100
+
+        for cls in np.unique(targets):
+            mask = targets == cls
+            ax.scatter(proj[mask, 0], proj[mask, 1],
+                       c=colors.get(int(cls), '#999999'), label=labels.get(int(cls), f'Class {cls}'),
+                       alpha=0.7, s=30, edgecolors='k', linewidths=0.3)
+
+        ax.set_xlabel(f'PC1 ({var_exp[0]:.1f}% var)', fontsize=13)
+        ax.set_ylabel(f'PC2 ({var_exp[1]:.1f}% var)', fontsize=13)
+        ax.set_title(name, fontsize=14, fontweight='bold')
+        ax.tick_params(axis='both', labelsize=12)
+        ax.grid(True, alpha=0.3)
+
+    # Shared legend
+    handles, legend_labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, legend_labels, loc='upper right', fontsize=12)
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"Saved PCA plot: {out_path}")
-    print(f"Explained variance: PC1={var_exp[0]:.1f}%, PC2={var_exp[1]:.1f}%")
+    print(f"Saved PCA subplot figure: {output_path}")
+
+
+def plot_choice_decoding_timecourse(trial_data_dict, output_path='images/q2_multisensory_choice_decoding.png'):
+    """Train linear decoders per timestep to track when choice becomes linearly separable."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    model_order = [
+        ('vanilla', 'Vanilla RNN', '#1f77b4'),
+        ('leaky', 'Leaky RNN', '#ff7f0e'),
+        ('leaky_fa', 'Leaky RNN + FA', '#2ca02c'),
+        ('bio', 'Bio-Realistic RNN', '#d62728'),
+    ]
+
+    for key, name, color in model_order:
+        if key not in trial_data_dict:
+            continue
+
+        trial_data = trial_data_dict[key]
+        activities = np.array(trial_data['activities'])  # [N, T, H]
+        labels = np.array(trial_data['ground_truths']).astype(int)
+
+        if activities.ndim == 2:
+            activities = activities[None, :, :]
+
+        num_trials, num_steps, _ = activities.shape
+        split = int(0.7 * num_trials)
+        idx = np.arange(num_trials)
+        np.random.shuffle(idx)
+        train_idx, test_idx = idx[:split], idx[split:]
+
+        accs = []
+        for t in range(num_steps):
+            X_train = activities[train_idx, t, :]
+            y_train = labels[train_idx]
+            X_test = activities[test_idx, t, :]
+            y_test = labels[test_idx]
+
+            clf = LogisticRegression(max_iter=200, multi_class='auto')
+            clf.fit(X_train, y_train)
+            preds = clf.predict(X_test)
+            accs.append(accuracy_score(y_test, preds))
+
+        ax.plot(np.arange(num_steps), accs, color=color, label=name, linewidth=2)
+
+    ax.set_xlabel('Time step')
+    ax.set_ylabel('Choice decoding accuracy')
+    ax.set_title('Linear choice decoding over time')
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved choice decoding plot: {output_path}")
+
+
+def plot_unit_selectivity_heatmap(trial_data_dict, env, output_path='images/q2_multisensory_unit_selectivity.png'):
+    """Sort units by left/right d' and show mean activity traces per model."""
+    model_order = [
+        ('vanilla', 'Vanilla RNN'),
+        ('leaky', 'Leaky RNN'),
+        ('leaky_fa', 'Leaky RNN + FA'),
+        ('bio', 'Bio-Realistic RNN'),
+    ]
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    for ax, (key, name) in zip(axes.flatten(), model_order):
+        if key not in trial_data_dict:
+            ax.axis('off')
+            continue
+
+        trial_data = trial_data_dict[key]
+        activities = np.array(trial_data['activities'])
+        targets = np.array(trial_data['ground_truths']).astype(int)
+
+        if activities.ndim == 2:
+            activities = activities[None, :, :]
+
+        mask_lr = (targets == 1) | (targets == 2)
+        if mask_lr.sum() < 2:
+            ax.axis('off')
+            continue
+
+        acts_lr = activities[mask_lr]
+        lbls_lr = targets[mask_lr]
+
+        mean_left = acts_lr[lbls_lr == 1].mean(axis=(0, 1))
+        mean_right = acts_lr[lbls_lr == 2].mean(axis=(0, 1))
+        var_left = acts_lr[lbls_lr == 1].var(axis=(0, 1))
+        var_right = acts_lr[lbls_lr == 2].var(axis=(0, 1))
+        d_prime = (mean_left - mean_right) / np.sqrt(0.5 * (var_left + var_right) + 1e-8)
+
+        sort_idx = np.argsort(-np.abs(d_prime))
+        acts_sorted = acts_lr[:, :, sort_idx].mean(axis=0).T  # [H, T]
+
+        im = ax.imshow(acts_sorted, aspect='auto', cmap='bwr',
+                       extent=[0, acts_sorted.shape[1] * env.dt, 0, acts_sorted.shape[0]])
+        ax.set_title(name)
+        ax.set_xlabel('Time (ms)')
+        ax.set_ylabel("Units (sorted by |d'|)")
+        ax.grid(False)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label='Avg activity')
+
+    plt.suptitle("Unit selectivity: left vs right (sorted by d' magnitude)", fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved unit selectivity heatmap: {output_path}")
 
 
 def plot_example_predictions(trial_data_dict, models_dict, env, output_path='images/q2_multisensory_example_predictions.png'):
@@ -478,7 +672,7 @@ def plot_modality_weighting_analysis(trial_data_dict, output_path='images/q2_mul
 
 def plot_decision_confidence(trial_data_dict, models_dict, env, output_path='images/q2_multisensory_decision_confidence.png'):
     """Analyze decision confidence (output probability distribution)."""
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
     axes = axes.flatten()
 
     model_names = ['Vanilla RNN', 'Leaky RNN', 'Leaky RNN + FA', 'Bio-Realistic RNN']
@@ -523,18 +717,19 @@ def plot_decision_confidence(trial_data_dict, models_dict, env, output_path='ima
         # Add mean lines
         if correct_confidences:
             ax.axvline(np.mean(correct_confidences), color='darkgreen', linestyle='--',
-                      linewidth=2, label=f'Mean Correct: {np.mean(correct_confidences):.3f}')
+                      linewidth=2.5, label=f'Mean Correct: {np.mean(correct_confidences):.3f}')
         if incorrect_confidences:
             ax.axvline(np.mean(incorrect_confidences), color='darkred', linestyle='--',
-                      linewidth=2, label=f'Mean Incorrect: {np.mean(incorrect_confidences):.3f}')
+                      linewidth=2.5, label=f'Mean Incorrect: {np.mean(incorrect_confidences):.3f}')
 
-        ax.set_xlabel('Confidence (Max Probability)', fontsize=11)
-        ax.set_ylabel('Count', fontsize=11)
-        ax.set_title(f'{model_name}', fontsize=12, fontweight='bold')
-        ax.legend(fontsize=9)
+        ax.set_xlabel('Confidence (Max Probability)', fontsize=14)
+        ax.set_ylabel('Count', fontsize=14)
+        ax.set_title(f'{model_name}', fontsize=15, fontweight='bold')
+        ax.legend(fontsize=11)
+        ax.tick_params(axis='both', which='major', labelsize=12)
         ax.grid(True, alpha=0.3, axis='y')
 
-    plt.suptitle('Decision Confidence: Correct vs Incorrect Predictions', fontsize=14, fontweight='bold')
+    plt.suptitle('Decision Confidence: Correct vs Incorrect Predictions', fontsize=17, fontweight='bold')
     plt.tight_layout()
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
@@ -874,17 +1069,23 @@ if __name__ == '__main__':
     print()
 
     print("[7] Analyzing hidden unit activity...")
-    analyze_hidden_activity(trial_data_dict['vanilla'], env, 'Vanilla RNN')
-    analyze_hidden_activity(trial_data_dict['leaky'], env, 'Leaky RNN')
-    analyze_hidden_activity(trial_data_dict['leaky_fa'], env, 'Leaky RNN + FA')
-    analyze_hidden_activity(trial_data_dict['bio'], env, 'Bio-Realistic RNN')
+    # Generate 2x2 grids for heatmaps and mean traces
+    plot_heatmaps_fn, plot_mean_traces_fn = analyze_hidden_activity(trial_data_dict['vanilla'], env, 'Vanilla RNN')
+    # The above returns closures that need trial_data_dict; call them here
+    plot_heatmaps_fn()
+    plot_mean_traces_fn()
     print()
 
     print("[7b] PCA of hidden states (per-trial means)...")
-    plot_pca_hidden_states(trial_data_dict['vanilla'], 'Vanilla RNN')
-    plot_pca_hidden_states(trial_data_dict['leaky'], 'Leaky RNN')
-    plot_pca_hidden_states(trial_data_dict['leaky_fa'], 'Leaky RNN + FA')
-    plot_pca_hidden_states(trial_data_dict['bio'], 'Bio-Realistic RNN')
+    plot_pca_hidden_states_subplots(trial_data_dict)
+    print()
+
+    print("[7c] Choice decoding timecourse...")
+    plot_choice_decoding_timecourse(trial_data_dict)
+    print()
+
+    print("[7d] Unit selectivity heatmaps...")
+    plot_unit_selectivity_heatmap(trial_data_dict, env)
     print()
 
     print("[8] Plotting example predictions...")
