@@ -356,9 +356,9 @@ PCA trajectories (Fig.~\ref{fig:trajectories}) reveal distinct computational str
     \label{fig:trajectories}
 \end{figure}
 
-\subsubsection{Temporal Activity Patterns}
+\subsubsection{Neural Activity Patterns and Functional Specialization}
 
-Heatmaps (Fig.~\ref{fig:heatmaps}) reveal activation sparsity gradients. Vanilla RNN shows binary patterns transitioning to dense sustained firing—distributed coding lacking temporal precision. Leaky RNN maintains dense activity with structured bursts; Leaky+FA concentrates firing around Set. Bio-Realistic activates only $\sim$9 neurons near Set—extreme sparsity from L1 regularisation matching cortical recordings (10--20\% neurons active \cite{remington2018}). This sparse activation is metabolically faithful but fragile: reliance on $\sim$9 critical neurons explains response failures when units remain silent, demonstrating the biological trade-off between efficiency (sparsity) and robustness (redundancy).
+Activity heatmaps (Fig.~\ref{fig:heatmaps}) and neuron importance rankings (Fig.~\ref{fig:neuron_importance}) reveal distinct sparsity gradients and specialization strategies. Vanilla shows dense sustained firing ($\sim$35 neurons active) with binary patterns—distributed coding lacking temporal precision. Leaky RNN maintains dense activity with structured bursts; Leaky+FA concentrates firing around Set. Bio-Realistic activates only $\sim$9 neurons near Set (18\% sparsity matching cortical 10--20\% \cite{remington2018}), with top 10 neurons dominating variance rankings, forming a specialized "timing circuit". This extreme concentration is metabolically faithful but fragile: reliance on critical neurons explains 31\% response failures.
 
 \begin{figure}[H]
     \centering
@@ -367,11 +367,7 @@ Heatmaps (Fig.~\ref{fig:heatmaps}) reveal activation sparsity gradients. Vanilla
     \label{fig:heatmaps}
 \end{figure}
 
-\textbf{Ramping Dynamics.} Individual neuron activity reveals interval timing's canonical signature: linear ramping during Ready→Set. Leaky RNN neurons 15--30 show firing rates increasing linearly with slopes proportional to sample duration, confirming leaky integration implements temporal accumulation ($\tau=100$ms) rather than discrete states \cite{remington2018}. Vanilla shows weak ramping with abrupt transitions, explaining underprediction. Bio-Realistic exhibits irregular, noisy ramping reflecting stochastic sparse recruitment. Ramping neurons maintain elevated activity until Go (working memory), whilst separate units show transient Set/Go bursts, indicating integration-readout specialization.
-
-\subsubsection{Neuron Importance Analysis}
-
-Neuron importance rankings (Fig.~\ref{fig:neuron_importance}) quantify functional specialisation via activity variance. Bio-Realistic exhibits extreme concentration: top 10 neurons dominate, forming a specialised "timing circuit". Vanilla distributes computation across $\sim$35 neurons with no dominant units. Leaky models show intermediate concentration, with Leaky+FA's sharper profile suggesting feedback alignment unintentionally promotes specialisation. This hierarchy mirrors biological cortex where sparse task-encoding neurons sit within larger populations \cite{remington2018}, exposing a computational trade-off: extreme specialisation (Bio-Realistic) is efficient but fragile; distributed coding (Vanilla) is robust but metabolically costly; intermediate strategies (Leaky) balance precision and redundancy.
+\textbf{Ramping Dynamics.} Individual neuron activity reveals interval timing's canonical signature: linear ramping during Ready→Set. Leaky RNN neurons 15--30 show firing rates increasing linearly with slopes proportional to sample duration, confirming leaky integration implements temporal accumulation ($\tau=100$ms) rather than discrete states \cite{remington2018}. Vanilla shows weak ramping with abrupt transitions, explaining underprediction. Bio-Realistic exhibits irregular, noisy ramping reflecting stochastic sparse recruitment. Ramping neurons maintain elevated activity until Go (working memory), whilst separate units show transient Set/Go bursts, indicating integration-readout specialization. Importance rankings confirm this hierarchy mirrors biological cortex where sparse task-encoding neurons sit within larger populations, exposing the computational trade-off: extreme specialization (Bio-Realistic) is efficient but fragile; distributed coding (Vanilla) is robust but metabolically costly; intermediate strategies (Leaky) balance precision and redundancy.
 
 \begin{figure}[H]
     \centering

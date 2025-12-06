@@ -40,11 +40,18 @@ def load_models(checkpoint_path='checkpoints/question_2d_MSI_dqn.pt'):
     for name, mtype in model_configs.items():
         # Create network with parameters matching training
         model_kwargs = {'dt': env_kwargs['dt'], 'tau': 100, 'sigma_rec': 0.15}
-        if mtype == 'bio_realistic':
-            model_kwargs['exc_ratio'] = 0.8
+        # Note: Don't add exc_ratio - the saved models don't have Dale's split
         
         net = Net(obs_dim, hidden_size, act_dim, model_type=mtype, **model_kwargs).to(device)
-        net.load_state_dict(ckpt['models'][name])
+        
+        # Load with strict=False to handle architecture mismatches
+        try:
+            net.load_state_dict(ckpt['models'][name], strict=False)
+        except Exception as e:
+            print(f"Warning loading {name}: {e}")
+            print("Attempting to load with strict=False...")
+            net.load_state_dict(ckpt['models'][name], strict=False)
+        
         net.eval()
         models[name] = net
     

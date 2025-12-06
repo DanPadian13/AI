@@ -101,32 +101,33 @@ class LeakyRNN(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.tau = tau
-        
+
         if dt is None:
             alpha = 1
         else:
             alpha = dt / self.tau
-        
+
         self.alpha = alpha
         self.oneminusalpha = 1 - alpha
         self._sigma_rec = np.sqrt(2 * alpha) * sigma_rec
-        
+
         self.input2h = nn.Linear(input_size, hidden_size)
         self.h2h = nn.Linear(hidden_size, hidden_size)
-        
+
     def init_hidden(self, input):
         batch_size = input.shape[1]
         return (torch.zeros(batch_size, self.hidden_size).to(input.device),
                 torch.zeros(batch_size, self.hidden_size).to(input.device))
-    
+
     def recurrence(self, input, hidden):
         state, output = hidden
         total_input = self.input2h(input) + self.h2h(output)
         state = state * self.oneminusalpha + total_input * self.alpha
-        
-        if self._sigma_rec > 0:
+
+        # Only add noise during training
+        if self.training and self._sigma_rec > 0:
             state += self._sigma_rec * torch.randn_like(state)
-        
+
         output = torch.relu(state)
         return state, output
     
@@ -161,20 +162,21 @@ class LeakyRNNFeedbackAlignment(nn.Module):
 
         self.input2h = FeedbackAlignmentLinear(input_size, hidden_size)
         self.h2h = FeedbackAlignmentLinear(hidden_size, hidden_size)
-        
+
     def init_hidden(self, input):
         batch_size = input.shape[1]
         return (torch.zeros(batch_size, self.hidden_size).to(input.device),
                 torch.zeros(batch_size, self.hidden_size).to(input.device))
-    
+
     def recurrence(self, input, hidden):
         state, output = hidden
         total_input = self.input2h(input) + self.h2h(output)
         state = state * self.oneminusalpha + total_input * self.alpha
-        
-        if self._sigma_rec > 0:
+
+        # Only add noise during training
+        if self.training and self._sigma_rec > 0:
             state += self._sigma_rec * torch.randn_like(state)
-        
+
         output = torch.relu(state)
         return state, output
     
@@ -210,13 +212,24 @@ class BiologicallyRealisticRNN(nn.Module):
         self._sigma_rec = np.sqrt(2 * alpha) * sigma_rec
 
         self.input2h = FeedbackAlignmentLinear(input_size, hidden_size)
-        self.h2h = FeedbackAlignmentLinear(hidden_size, hidden_size)
 
-        # Dale's principle: excitatory/inhibitory neurons
+        # For Dale's law, we use separate excitatory and inhibitory weight matrices
+        # This avoids gradient issues with abs()
         n_exc = int(hidden_size * exc_ratio)
-        self.dale_mask = torch.ones(hidden_size)
-        self.dale_mask[n_exc:] = -1
-        self.dale_mask = nn.Parameter(self.dale_mask.unsqueeze(0), requires_grad=False)
+        n_inh = hidden_size - n_exc
+
+        # Store dimensions
+        self.n_exc = n_exc
+        self.n_inh = n_inh
+
+        # Separate weight parameters (all positive)
+        self.h2h_exc = nn.Linear(n_exc, hidden_size, bias=False)
+        self.h2h_inh = nn.Linear(n_inh, hidden_size, bias=False)
+        self.h2h_bias = nn.Parameter(torch.zeros(hidden_size))
+
+        # Initialize with smaller weights for stability
+        nn.init.uniform_(self.h2h_exc.weight, 0, 0.5 / np.sqrt(n_exc))
+        nn.init.uniform_(self.h2h_inh.weight, 0, 0.5 / np.sqrt(n_inh))
 
     def init_hidden(self, input):
         batch_size = input.shape[1]
@@ -226,13 +239,22 @@ class BiologicallyRealisticRNN(nn.Module):
     def recurrence(self, input, hidden):
         state, output = hidden
 
-        # Apply Dale's principle: rectify then apply sign
-        h2h_weight = torch.relu(self.h2h.weight) * self.dale_mask
+        # Apply Dale's principle by splitting excitatory and inhibitory neurons
+        output_exc = output[:, :self.n_exc]  # First n_exc neurons are excitatory
+        output_inh = output[:, self.n_exc:]  # Rest are inhibitory
 
-        total_input = self.input2h(input) + nn.functional.linear(output, h2h_weight, self.h2h.bias)
+        # Rectify weights to ensure they're positive
+        exc_contribution = nn.functional.linear(output_exc, torch.relu(self.h2h_exc.weight))
+        inh_contribution = nn.functional.linear(output_inh, torch.relu(self.h2h_inh.weight))
+
+        # Excitatory adds, inhibitory subtracts
+        h2h_output = exc_contribution - inh_contribution + self.h2h_bias
+
+        total_input = self.input2h(input) + h2h_output
         state = state * self.oneminusalpha + total_input * self.alpha
 
-        if self._sigma_rec > 0:
+        # Only add noise during training
+        if self.training and self._sigma_rec > 0:
             state += self._sigma_rec * torch.randn_like(state)
 
         output = torch.relu(state)
@@ -276,7 +298,7 @@ class Net(nn.Module):
         return out, rnn_activity, hidden
 
 
-def train_model(net, dataset, num_steps=5000, lr=0.001, print_step=50,
+def train_model(net, dataset, num_steps=5000, lr=0.001, print_step=100,
                 beta_L1=0.0, beta_L2=0.0, class_weights=None):
     optimizer = optim.Adam(net.parameters(), lr=lr)
     device = next(net.parameters()).device
@@ -317,8 +339,23 @@ def train_model(net, dataset, num_steps=5000, lr=0.001, print_step=50,
             loss = loss + l2_loss
 
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(net.parameters(), 0.5)
-        optimizer.step()
+
+        # Clip gradients more aggressively for stability
+        torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+
+        # Check for NaN gradients before optimizer step
+        has_nan = False
+        for param in net.parameters():
+            if param.grad is not None and torch.isnan(param.grad).any():
+                has_nan = True
+                break
+
+        if not has_nan:
+            optimizer.step()
+        else:
+            print(f"Warning: NaN gradient detected at step {i+1}, skipping update")
+            optimizer.zero_grad()
+            continue
 
         running_loss += loss.item()
         running_task_loss += task_loss.item()
@@ -347,25 +384,27 @@ def train_model(net, dataset, num_steps=5000, lr=0.001, print_step=50,
 def evaluate_model(net, env, num_trials=500):
     net.eval()
     device = next(net.parameters()).device
-    
+
     trial_data = {
         'activities': [],
         'trial_info': [],
         'correct': []
     }
-    
+
     with torch.no_grad():
         for i in range(num_trials):
             env.new_trial()
             ob, gt = env.ob, env.gt
-            
+
             inputs = torch.from_numpy(ob[:, np.newaxis, :]).type(torch.float).to(device)
             action_pred, rnn_activity, _ = net(inputs)
-            
+
             action_pred = action_pred.detach().cpu().numpy()
-            choice = np.argmax(action_pred[-1, 0, :])
-            correct = (choice == gt[-1])
-            
+
+            # Check timing accuracy: compare predicted actions across ALL timesteps
+            predicted_actions = np.argmax(action_pred[:, 0, :], axis=1)
+            correct = np.mean(predicted_actions == gt) > 0.9  # 90% of timesteps must be correct
+
             trial_data['activities'].append(rnn_activity[:, 0, :].detach().cpu().numpy())
             trial_data['trial_info'].append(env.unwrapped.trial)
             trial_data['correct'].append(correct)
@@ -390,7 +429,7 @@ if __name__ == "__main__":
     
     input_size = env.observation_space.shape[0]
     output_size = env.action_space.n
-    hidden_size = 50
+    hidden_size = 64
     
     print(f"Task: {task}")
     print(f"Description: Timing task - measure and produce time intervals")
@@ -458,7 +497,7 @@ if __name__ == "__main__":
     ).to(device)
 
     loss_bio = train_model(net_bio, dataset, num_steps=4000, lr=common_lr,
-                           beta_L1=0.0005, beta_L2=0.01,
+                           beta_L1=0.0001, beta_L2=0.01,
                            class_weights=class_weights)
 
     print("\n[4] Evaluating models...")

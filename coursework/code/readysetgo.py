@@ -39,8 +39,29 @@ def infer_go_action_index(env, trial_data=None):
     return 1
 
 
-def load_models_and_config(checkpoint_path='checkpoints/question_2a_models_and_data.pt'):
+def load_models_and_config(checkpoint_path=None):
     """Load trained models and environment configuration."""
+    if checkpoint_path is None:
+        # Try multiple possible locations
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        possible_paths = [
+            os.path.join(script_dir, '..', 'checkpoints', 'question_2a_models_and_data.pt'),
+            os.path.join(script_dir, 'checkpoints', 'question_2a_models_and_data.pt'),
+            'checkpoints/question_2a_models_and_data.pt',
+            '../checkpoints/question_2a_models_and_data.pt'
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                checkpoint_path = path
+                break
+        
+        if checkpoint_path is None:
+            raise FileNotFoundError(
+                f"Could not find checkpoint file. Tried:\n" + 
+                "\n".join(f"  - {p}" for p in possible_paths)
+            )
+    
     print(f"Loading models from: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, weights_only=False)
 
@@ -56,7 +77,14 @@ def load_models_and_config(checkpoint_path='checkpoints/question_2a_models_and_d
 
     input_size = env.observation_space.shape[0]
     output_size = env.action_space.n
-    hidden_size = 50
+
+    # Infer hidden size from checkpoint (use vanilla model as reference)
+    vanilla_state = checkpoint['vanilla_model']
+    if 'rnn.h2h.weight' in vanilla_state:
+        hidden_size = vanilla_state['rnn.h2h.weight'].shape[0]
+    else:
+        # Fallback for other architectures
+        hidden_size = vanilla_state['fc.weight'].shape[1]
 
     # Initialize models
     models = {}
@@ -82,8 +110,17 @@ def load_models_and_config(checkpoint_path='checkpoints/question_2a_models_and_d
     models['Leaky+FA'] = net_leaky_fa
 
     # Bio-Realistic
-    net_bio = Net(input_size, hidden_size, output_size, model_type='bio_realistic',
-                  dt=dt, tau=100, sigma_rec=0.15, exc_ratio=0.8, sparsity=0.2)
+    # Infer hidden size from bio model (might have different architecture)
+    bio_state = checkpoint['bio_model']
+    if 'rnn.h2h.weight' in bio_state:
+        bio_hidden_size = bio_state['rnn.h2h.weight'].shape[0]
+    elif 'rnn.h2h_exc.weight' in bio_state:
+        bio_hidden_size = bio_state['rnn.h2h_exc.weight'].shape[1] + bio_state['rnn.h2h_inh.weight'].shape[1]
+    else:
+        bio_hidden_size = hidden_size
+
+    net_bio = Net(input_size, bio_hidden_size, output_size, model_type='bio_realistic',
+                  dt=dt, tau=100, sigma_rec=0.15, exc_ratio=0.8)
     net_bio.load_state_dict(checkpoint['bio_model'])
     net_bio.eval()
     models['Bio-Realistic'] = net_bio
@@ -106,7 +143,7 @@ def collect_trial_data(models, env, num_trials=100):
 
         for name, model in models.items():
             with torch.no_grad():
-                output, activity = model(inputs)
+                output, activity, _ = model(inputs)
 
                 trial_data[name]['activities'].append(activity[:, 0, :].cpu().numpy())
                 trial_data[name]['outputs'].append(output[:, 0, :].cpu().numpy())
