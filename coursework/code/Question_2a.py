@@ -270,10 +270,10 @@ class Net(nn.Module):
 
         self.fc = nn.Linear(hidden_size, output_size)
     
-    def forward(self, x):
-        rnn_activity, _ = self.rnn(x)
+    def forward(self, x, hidden=None):
+        rnn_activity, hidden = self.rnn(x, hidden)
         out = self.fc(rnn_activity)
-        return out, rnn_activity
+        return out, rnn_activity, hidden
 
 
 def train_model(net, dataset, num_steps=5000, lr=0.001, print_step=50,
@@ -297,7 +297,7 @@ def train_model(net, dataset, num_steps=5000, lr=0.001, print_step=50,
         labels = torch.from_numpy(labels.flatten()).type(torch.long).to(device)
 
         optimizer.zero_grad()
-        output, activity = net(inputs)
+        output, activity, _ = net(inputs)
         output = output.view(-1, output.size(-1))
 
         # Task loss
@@ -360,7 +360,7 @@ def evaluate_model(net, env, num_trials=500):
             ob, gt = env.ob, env.gt
             
             inputs = torch.from_numpy(ob[:, np.newaxis, :]).type(torch.float).to(device)
-            action_pred, rnn_activity = net(inputs)
+            action_pred, rnn_activity, _ = net(inputs)
             
             action_pred = action_pred.detach().cpu().numpy()
             choice = np.argmax(action_pred[-1, 0, :])
