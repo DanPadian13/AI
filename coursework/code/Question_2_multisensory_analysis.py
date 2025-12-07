@@ -202,7 +202,7 @@ def analyze_hidden_activity(trial_data, env, model_name, output_path_prefix='ima
 
     # Heatmap-only grid (2x2) saved separately
     def plot_heatmaps():
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12), sharex=True, sharey=True)
+        fig, axes = plt.subplots(2, 2, figsize=(18, 14), sharex=True, sharey=True)
         titles = ['Vanilla RNN', 'Leaky RNN', 'Leaky RNN + FA', 'Bio-Realistic RNN']
         model_keys = ['vanilla', 'leaky', 'leaky_fa', 'bio']
         for ax, key, title in zip(axes.flatten(), model_keys, titles):
@@ -211,18 +211,20 @@ def analyze_hidden_activity(trial_data, env, model_name, output_path_prefix='ima
             avg_act = acts.mean(axis=0)
             im = ax.imshow(avg_act.T, aspect='auto', cmap='viridis',
                            extent=[0, (avg_act.shape[0]-1)*env.dt, 0, avg_act.shape[1]])
-            ax.set_title(title, fontsize=15, fontweight='bold')
-            ax.set_xlabel('Time (ms)', fontsize=13)
-            ax.set_ylabel('Hidden Unit', fontsize=13)
-            ax.tick_params(axis='both', labelsize=12)
+            ax.set_title(title, fontsize=20, fontweight='bold')
+            ax.set_xlabel('Time (ms)', fontsize=18, fontweight='bold')
+            ax.set_ylabel('Hidden Unit', fontsize=18, fontweight='bold')
+            ax.tick_params(axis='both', labelsize=15)
         # Move colorbar to bottom spanning all axes
         cbar_ax = fig.add_axes([0.2, 0.04, 0.6, 0.02])
         cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal')
-        cbar.set_label('Activity', fontsize=13)
-        cbar.ax.tick_params(labelsize=12)
-        plt.tight_layout(rect=[0, 0.08, 1, 0.94])
+        cbar.set_label('Activity', fontsize=18, fontweight='bold')
+        cbar.ax.tick_params(labelsize=15)
+        # Add main title
+        fig.suptitle('Hidden Unit Activity Heatmaps', fontsize=24, fontweight='bold', y=0.98)
+        plt.tight_layout(rect=[0, 0.08, 1, 0.96])
         os.makedirs(os.path.dirname(output_path_prefix), exist_ok=True)
-        plt.savefig('images/q2_multisensory_heatmaps.png', dpi=150, bbox_inches='tight')
+        plt.savefig('images/q2_multisensory_heatmaps.png', dpi=200, bbox_inches='tight')
         plt.close()
 
     # Mean-activity grid (2x2) saved separately
@@ -266,7 +268,7 @@ def plot_pca_hidden_states_subplots(trial_data_dict, output_path='images/q2_mult
         ('bio', 'Bio-Realistic RNN'),
     ]
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 14))
     colors = {0: '#7f7f7f', 1: '#1f77b4', 2: '#d62728'}
     labels = {0: 'Fixate', 1: 'Left', 2: 'Right'}
 
@@ -292,20 +294,24 @@ def plot_pca_hidden_states_subplots(trial_data_dict, output_path='images/q2_mult
             mask = targets == cls
             ax.scatter(proj[mask, 0], proj[mask, 1],
                        c=colors.get(int(cls), '#999999'), label=labels.get(int(cls), f'Class {cls}'),
-                       alpha=0.7, s=30, edgecolors='k', linewidths=0.3)
+                       alpha=0.7, s=50, edgecolors='k', linewidths=0.5)
 
-        ax.set_xlabel(f'PC1 ({var_exp[0]:.1f}% var)', fontsize=13)
-        ax.set_ylabel(f'PC2 ({var_exp[1]:.1f}% var)', fontsize=13)
-        ax.set_title(name, fontsize=14, fontweight='bold')
-        ax.tick_params(axis='both', labelsize=12)
+        ax.set_xlabel(f'PC1 ({var_exp[0]:.1f}% var)', fontsize=16, fontweight='bold')
+        ax.set_ylabel(f'PC2 ({var_exp[1]:.1f}% var)', fontsize=16, fontweight='bold')
+        ax.set_title(name, fontsize=18, fontweight='bold')
+        ax.tick_params(axis='both', labelsize=14)
         ax.grid(True, alpha=0.3)
 
     # Shared legend
     handles, legend_labels = axes[0, 0].get_legend_handles_labels()
-    fig.legend(handles, legend_labels, loc='upper right', fontsize=12)
-    plt.tight_layout()
+    fig.legend(handles, legend_labels, loc='upper right', fontsize=15, frameon=True, shadow=True)
+
+    # Add main title
+    fig.suptitle('PCA of Hidden State Representations', fontsize=20, fontweight='bold', y=0.98)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
     plt.close()
     print(f"Saved PCA subplot figure: {output_path}")
 
@@ -436,7 +442,7 @@ def plot_example_predictions(trial_data_dict, models_dict, env, output_path='ima
 
         with torch.no_grad():
             inputs = torch.from_numpy(ob[:, np.newaxis, :]).type(torch.float).to(device)
-            action_pred, _ = net(inputs)
+            action_pred, _, _ = net(inputs)
             action_pred_np = action_pred.detach().cpu().numpy()[:, 0, :]
 
         # Calculate probabilities
@@ -538,13 +544,13 @@ def analyze_coherence_difficulty(trial_data_dict, output_path='images/q2_multise
 
 
 def plot_confusion_matrices(trial_data_dict, output_path='images/q2_multisensory_confusion_matrices.png'):
-    """Plot confusion matrices for all models."""
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    """Plot confusion matrices for all models (Left vs Right only, excluding Fixate)."""
+    fig, axes = plt.subplots(2, 2, figsize=(16, 14))
     axes = axes.flatten()
 
     model_names = ['Vanilla RNN', 'Leaky RNN', 'Leaky RNN + FA', 'Bio-Realistic RNN']
     model_keys = ['vanilla', 'leaky', 'leaky_fa', 'bio']
-    action_names = ['Fixate (0)', 'Left (1)', 'Right (2)']
+    action_names = ['Left (1)', 'Right (2)']
 
     for idx, (model_key, model_name) in enumerate(zip(model_keys, model_names)):
         trial_data = trial_data_dict[model_key]
@@ -552,55 +558,58 @@ def plot_confusion_matrices(trial_data_dict, output_path='images/q2_multisensory
         predictions = np.array(trial_data['predictions'])
         ground_truths = np.array(trial_data['ground_truths'])
 
-        # Create confusion matrix (3x3 for 3 classes)
-        num_classes = 3
-        confusion = np.zeros((num_classes, num_classes))
-        for true_val in range(num_classes):
-            for pred_val in range(num_classes):
-                confusion[true_val, pred_val] = np.sum((ground_truths == true_val) & (predictions == pred_val))
+        # Filter out fixation trials (class 0) - only keep Left (1) and Right (2)
+        decision_mask = (ground_truths == 1) | (ground_truths == 2)
+        predictions_filtered = predictions[decision_mask]
+        ground_truths_filtered = ground_truths[decision_mask]
+
+        # Create 2x2 confusion matrix for Left vs Right only
+        confusion = np.zeros((2, 2))
+        for i, true_val in enumerate([1, 2]):  # Left=1, Right=2
+            for j, pred_val in enumerate([1, 2]):
+                confusion[i, j] = np.sum((ground_truths_filtered == true_val) & (predictions_filtered == pred_val))
 
         # Normalize by row (ground truth)
         confusion_norm = confusion / (confusion.sum(axis=1, keepdims=True) + 1e-10)
 
-        # Calculate balanced accuracy
-        per_class_recalls = []
-        for cls in range(num_classes):
-            mask = ground_truths == cls
-            if np.sum(mask) > 0:
-                recall = np.sum((predictions == cls) & mask) / np.sum(mask)
-                per_class_recalls.append(recall)
-        balanced_acc = np.mean(per_class_recalls) if per_class_recalls else 0.0
+        # Calculate accuracy for decision trials only
+        decision_accuracy = np.sum(predictions_filtered == ground_truths_filtered) / len(predictions_filtered) if len(predictions_filtered) > 0 else 0
+
+        # Calculate balanced accuracy (average of Left recall and Right recall)
+        left_recall = confusion_norm[0, 0] if confusion.sum(axis=1)[0] > 0 else 0
+        right_recall = confusion_norm[1, 1] if confusion.sum(axis=1)[1] > 0 else 0
+        balanced_acc = (left_recall + right_recall) / 2
 
         ax = axes[idx]
         im = ax.imshow(confusion_norm, cmap='Blues', vmin=0, vmax=1)
 
         # Add text annotations
-        for i in range(num_classes):
-            for j in range(num_classes):
+        for i in range(2):
+            for j in range(2):
                 count = int(confusion[i, j])
                 pct = confusion_norm[i, j]
                 text = f'{count}\n({pct:.1%})'
-                ax.text(j, i, text, ha='center', va='center', fontsize=10,
+                ax.text(j, i, text, ha='center', va='center', fontsize=16,
                        color='white' if pct > 0.5 else 'black', fontweight='bold')
 
-        ax.set_xticks([0, 1, 2])
-        ax.set_yticks([0, 1, 2])
-        ax.set_xticklabels(action_names, fontsize=9)
-        ax.set_yticklabels(action_names, fontsize=9)
-        ax.set_xlabel('Predicted', fontsize=10)
-        ax.set_ylabel('Ground Truth', fontsize=10)
+        ax.set_xticks([0, 1])
+        ax.set_yticks([0, 1])
+        ax.set_xticklabels(action_names, fontsize=15)
+        ax.set_yticklabels(action_names, fontsize=15)
+        ax.set_xlabel('Predicted', fontsize=17, fontweight='bold')
+        ax.set_ylabel('Ground Truth', fontsize=17, fontweight='bold')
 
-        accuracy = np.sum(predictions == ground_truths) / len(predictions)
-        ax.set_title(f'{model_name}\nAcc: {accuracy:.3f} | Bal Acc: {balanced_acc:.3f}',
-                    fontsize=11, fontweight='bold')
+        ax.set_title(f'{model_name}\nDecision Acc: {decision_accuracy:.3f} | Bal Acc: {balanced_acc:.3f}',
+                    fontsize=18, fontweight='bold')
 
-        # Add colorbar
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        # Add colorbar with larger font
+        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.ax.tick_params(labelsize=14)
 
-    plt.suptitle('Confusion Matrices: What Do Models Actually Predict?', fontsize=14, fontweight='bold')
+    plt.suptitle('Confusion Matrices: Left vs Right Decision Performance', fontsize=20, fontweight='bold')
     plt.tight_layout()
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
     print(f"Saved: {output_path}")
     plt.close()
 
@@ -691,7 +700,7 @@ def plot_decision_confidence(trial_data_dict, models_dict, env, output_path='ima
                 ob, gt = env.ob, env.gt
 
                 inputs = torch.from_numpy(ob[:, np.newaxis, :]).type(torch.float).to(device)
-                action_pred, _ = net(inputs)
+                action_pred, _, _ = net(inputs)
 
                 action_pred_np = action_pred.detach().cpu().numpy()[-1, 0, :]
                 pred_probs = np.exp(action_pred_np) / np.sum(np.exp(action_pred_np))
@@ -759,7 +768,7 @@ def plot_temporal_dynamics(trial_data_dict, models_dict, env, output_path='image
                 ob, gt = env.ob, env.gt
 
                 inputs = torch.from_numpy(ob[:, np.newaxis, :]).type(torch.float).to(device)
-                action_pred, _ = net(inputs)
+                action_pred, _, _ = net(inputs)
 
                 action_pred_np = action_pred.detach().cpu().numpy()[:, 0, :]
                 pred_probs = np.exp(action_pred_np) / np.exp(action_pred_np).sum(axis=1, keepdims=True)
@@ -929,6 +938,121 @@ def plot_architecture_comparison_radar(perf_dict, bal_acc_dict, trial_data_dict,
     plt.close()
 
 
+def plot_connectivity_matrices(checkpoint, output_path='images/q2_multisensory_connectivity.png'):
+    """
+    Plot connectivity heatmaps showing recurrent weight matrices for all models.
+    Shows how neurons are connected to each other in each model.
+    """
+    print("Generating connectivity matrices plot...")
+
+    model_names = ['Vanilla', 'Leaky', 'Leaky+FA', 'Bio-Realistic']
+    model_types = ['vanilla', 'leaky', 'leaky_fa', 'bio_realistic']
+    state_dicts = ['vanilla_model', 'leaky_model', 'leaky_fa_model', 'bio_model']
+
+    device = torch.device('cpu')
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 14))
+    axes = axes.flatten()
+
+    # Store the last image for shared colorbar
+    last_im = None
+
+    for idx, (name, model_type, state_dict) in enumerate(zip(model_names, model_types, state_dicts)):
+        ax = axes[idx]
+
+        # Infer hidden size from saved state dict
+        saved_state = checkpoint[state_dict]
+
+        # Handle different architectures
+        if 'rnn.h2h.weight' in saved_state:
+            hidden_size = saved_state['rnn.h2h.weight'].shape[0]
+        elif 'rnn.h2h_exc.weight' in saved_state:
+            hidden_size = saved_state['rnn.h2h_exc.weight'].shape[1] + saved_state['rnn.h2h_inh.weight'].shape[1]
+        else:
+            raise ValueError(f"Cannot infer hidden size from state_dict keys")
+
+        # Load model
+        model_kwargs = {}
+        if model_type != 'vanilla':
+            model_kwargs = {'dt': 20, 'tau': 100, 'sigma_rec': 0.1}
+        if model_type == 'bio_realistic':
+            model_kwargs['exc_ratio'] = 0.8
+
+        # Get input/output sizes from environment
+        input_size = 5  # MultiSensoryIntegration has 5 inputs
+        output_size = 3  # MultiSensoryIntegration has 3 outputs
+
+        # Check if bio model uses old architecture
+        if model_type == 'bio_realistic' and 'rnn.h2h.weight' in saved_state:
+            # Old architecture - load as leaky_fa
+            model_type = 'leaky_fa'
+
+        net = Net(input_size=input_size, hidden_size=hidden_size, output_size=output_size,
+                 model_type=model_type, **model_kwargs).to(device)
+        net.load_state_dict(checkpoint[state_dict])
+
+        # Extract recurrent weight matrix
+        if model_type == 'vanilla':
+            weight_matrix = net.rnn.h2h.weight.detach().cpu().numpy()
+        elif model_type == 'bio_realistic':
+            # Bio-realistic: reconstruct full weight matrix from separate E/I weights
+            n_exc = net.rnn.n_exc
+            n_inh = net.rnn.n_inh
+
+            weight_matrix = np.zeros((hidden_size, hidden_size))
+            exc_weights = torch.relu(net.rnn.h2h_exc.weight).detach().cpu().numpy()
+            weight_matrix[:, :n_exc] = exc_weights
+            inh_weights = torch.relu(net.rnn.h2h_inh.weight).detach().cpu().numpy()
+            weight_matrix[:, n_exc:] = -inh_weights
+        else:
+            # Leaky and Leaky+FA
+            weight_matrix = net.rnn.h2h.weight.detach().cpu().numpy()
+
+        # Plot connectivity matrix
+        vmax = np.abs(weight_matrix).max()
+        im = ax.imshow(weight_matrix, aspect='auto', cmap='RdBu_r',
+                      interpolation='nearest', vmin=-vmax, vmax=vmax)
+
+        last_im = im
+
+        ax.set_xlabel('From Neuron', fontsize=18, fontweight='bold')
+        ax.set_ylabel('To Neuron', fontsize=18, fontweight='bold')
+        ax.set_title(f'{name}', fontsize=20, fontweight='bold')
+        ax.tick_params(axis='both', which='major', labelsize=15)
+
+        # Add statistics
+        sparsity = np.mean(np.abs(weight_matrix) < 0.01)
+        mean_weight = np.mean(np.abs(weight_matrix))
+
+        if model_type == 'bio_realistic' and 'n_exc' in locals():
+            # For bio-realistic, show E/I neuron counts
+            text_str = f'Sparsity: {sparsity:.2%}\nMean |W|: {mean_weight:.3f}\nE/I: {n_exc}/{n_inh}'
+            # Add line to separate excitatory and inhibitory
+            ax.axhline(y=n_exc-0.5, color='yellow', linestyle='--', linewidth=2, alpha=0.7)
+            ax.axvline(x=n_exc-0.5, color='yellow', linestyle='--', linewidth=2, alpha=0.7)
+        else:
+            text_str = f'Sparsity: {sparsity:.2%}\nMean |W|: {mean_weight:.3f}'
+
+        ax.text(0.98, 0.98, text_str, transform=ax.transAxes,
+               fontsize=14, verticalalignment='top', horizontalalignment='right',
+               bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+    fig.suptitle('Recurrent Connectivity Matrices', fontsize=24, fontweight='bold', y=0.98)
+
+    # Add single shared colorbar
+    fig.subplots_adjust(right=0.90)
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    cbar = fig.colorbar(last_im, cax=cbar_ax)
+    cbar.set_label('Weight Strength', fontsize=18, fontweight='bold')
+    cbar.ax.tick_params(labelsize=15)
+
+    plt.tight_layout(rect=[0, 0, 0.90, 0.96])
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
 def print_confusion_matrix_stats(trial_data_dict):
     """Print detailed confusion matrix statistics to console."""
     model_names = ['Vanilla RNN', 'Leaky RNN', 'Leaky RNN + FA', 'Bio-Realistic RNN']
@@ -1035,9 +1159,21 @@ if __name__ == '__main__':
     net_leaky_fa.load_state_dict(checkpoint['leaky_fa_model'])
     models_dict['leaky_fa'] = net_leaky_fa
 
-    net_bio = Net(input_size, hidden_size, output_size, model_type='bio_realistic',
-                  dt=env.dt, tau=100, sigma_rec=0.1, exc_ratio=0.8).to(device)
-    net_bio.load_state_dict(checkpoint['bio_model'])
+    # Check if bio model uses old or new architecture
+    bio_state_dict = checkpoint['bio_model']
+    if 'rnn.h2h_exc.weight' in bio_state_dict:
+        # New architecture with separate exc/inh weights
+        net_bio = Net(input_size, hidden_size, output_size, model_type='bio_realistic',
+                      dt=env.dt, tau=100, sigma_rec=0.1, exc_ratio=0.8).to(device)
+        net_bio.load_state_dict(bio_state_dict)
+    else:
+        # Old architecture with Dale mask - load as leaky_fa instead
+        print("  Note: Bio model checkpoint uses old architecture (Dale mask)")
+        print("        Loading as Leaky+FA model instead")
+        net_bio = Net(input_size, hidden_size, output_size, model_type='leaky_fa',
+                      dt=env.dt, tau=100, sigma_rec=0.1).to(device)
+        net_bio.load_state_dict(bio_state_dict)
+
     models_dict['bio'] = net_bio
 
     print("Models reconstructed successfully")
@@ -1124,6 +1260,10 @@ if __name__ == '__main__':
     plot_architecture_comparison_radar(perf_dict, bal_acc_dict, trial_data_dict)
     print()
 
+    print("[17] Creating connectivity heatmaps...")
+    plot_connectivity_matrices(checkpoint)
+    print()
+
     print("="*70)
     print("Analysis Complete!")
     print("="*70)
@@ -1140,6 +1280,7 @@ if __name__ == '__main__':
     print("  - images/q2_multisensory_temporal_dynamics.png")
     print("  - images/q2_multisensory_error_analysis.png")
     print("  - images/q2_multisensory_radar_comparison.png")
+    print("  - images/q2_multisensory_connectivity.png")
     print("\nKey findings to discuss:")
     print("  - Do all models achieve high accuracy (>80%)?")
     print("  - How does performance vary with coherence?")

@@ -28,7 +28,7 @@ def evaluate_model_balanced(net, env, num_trials=500):
             ob, gt = env.unwrapped.ob, env.unwrapped.gt
 
             inputs = torch.from_numpy(ob[:, np.newaxis, :]).type(torch.float).to(device)
-            action_pred, rnn_activity = net(inputs)
+            action_pred, rnn_activity, _ = net(inputs)
 
             action_pred = action_pred.detach().cpu().numpy()
             choice = np.argmax(action_pred[-1, 0, :])
@@ -93,7 +93,7 @@ def train_model_with_lr_decay(net, dataset, num_steps=5000, lr=0.001, print_step
         labels = torch.from_numpy(labels.flatten()).type(torch.long).to(device)
 
         optimizer.zero_grad()
-        output, activity = net(inputs)
+        output, activity, _ = net(inputs)
         output = output.view(-1, output.size(-1))
 
         # Task loss
@@ -183,7 +183,7 @@ if __name__ == '__main__':
     input_size = env.observation_space.shape[0]
     output_size = env.action_space.n
     hidden_size = 64
-    common_lr = 0.002
+    common_lr = 0.001
     common_noise = 0.1
 
     print(f"Task: {task}")
@@ -199,7 +199,7 @@ if __name__ == '__main__':
         print("\n>>> QUICK TEST MODE: Using 3000 steps <<<\n")
     else:
         num_steps = 10000
-        num_eval_trials = 500
+        num_eval_trials = 200
 
     # Class weights: balance fixation vs decision classes
     # 90.9% fixation, so weight decisions higher
@@ -326,7 +326,7 @@ if __name__ == '__main__':
 
         loss_bio = train_model_with_lr_decay(
             net_bio, dataset, num_steps=num_steps, lr=common_lr,
-            beta_L1=0.0005, beta_L2=0.01, class_weights=class_weights
+            beta_L1=0.00005, beta_L2=0.01, class_weights=class_weights
         )
         perf_bio, bal_acc_bio, data_bio = evaluate_model_balanced(
             net_bio, env, num_trials=num_eval_trials

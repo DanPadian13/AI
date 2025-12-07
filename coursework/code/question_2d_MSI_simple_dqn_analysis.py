@@ -15,6 +15,43 @@ from math import pi
 from Question_2a import Net
 
 
+def plot_training_rewards(checkpoint_path='checkpoints/question_2d_MSI_dqn.pt', 
+                          output_path='images/question_2d_MSI_dqn_rewards.png'):
+    """Plot training reward curves from saved checkpoint with larger fonts and excluding final 50 episodes."""
+    ckpt = torch.load(checkpoint_path, weights_only=False)
+    all_histories = ckpt.get('histories', {})
+    
+    if not all_histories:
+        print("No training histories found in checkpoint!")
+        return
+    
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
+    plt.figure(figsize=(12, 7))
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    model_names = ['Vanilla RNN', 'Leaky RNN', 'Leaky + FA', 'Bio-Realistic']
+    
+    for name, color in zip(model_names, colors):
+        if name in all_histories:
+            rewards = all_histories[name]
+            smooth = np.convolve(rewards, np.ones(50)/50, mode='same')
+            # Exclude final 50 datapoints
+            smooth = smooth[:-50]
+            plt.plot(smooth, label=name, color=color, linewidth=3.0)
+    
+    plt.xlabel('Episode', fontsize=14, fontweight='bold')
+    plt.ylabel('Reward (smoothed)', fontsize=14, fontweight='bold')
+    plt.title('DQN on MultiSensoryIntegration-v0 (Parameters Matched to Question 2a)', 
+              fontsize=16, fontweight='bold')
+    plt.legend(fontsize=12)
+    plt.tick_params(axis='both', labelsize=12)
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
 def load_models(checkpoint_path='checkpoints/question_2d_MSI_dqn.pt'):
     """Load models from the MSI DQN checkpoint."""
     ckpt = torch.load(checkpoint_path, weights_only=False)
@@ -172,103 +209,112 @@ def plot_performance_comparison(trial_data, output_path='images/question_2D_MSI_
 
 
 def plot_pca_trajectories(trial_data, output_path='images/question_2D_MSI_pca_trajectories.png'):
-    """Plot PCA trajectories colored by choice."""
+    """PCA scatter for each model on a 2x2 grid, colored by final action."""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
+
     model_names = list(trial_data.keys())
-    colors_choice = {0: '#7f7f7f', 1: '#1f77b4', 2: '#d62728'}
-    labels_choice = {0: 'Fixate', 1: 'Left', 2: 'Right'}
-    
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    colors = {0: '#7f7f7f', 1: '#1f77b4', 2: '#d62728'}
+    labels = {0: 'Fixate', 1: 'Left', 2: 'Right'}
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 14))
     axes = axes.flatten()
-    
+
     for idx, name in enumerate(model_names):
         ax = axes[idx]
-        
-        # Get correct trials only
-        activities = trial_data[name]['activities']
-        targets = trial_data[name]['targets']
-        correct = trial_data[name]['correct']
-        
-        # Concatenate all activities for PCA
-        all_acts = []
-        all_choices = []
-        for act, tgt, corr in zip(activities, targets, correct):
-            if corr:  # Only correct trials
-                all_acts.append(act)
-                all_choices.append(tgt[-1])
-        
-        if len(all_acts) == 0:
-            ax.text(0.5, 0.5, 'No correct trials', ha='center', va='center')
-            continue
-        
-        # Concatenate and do PCA
-        concat_acts = np.concatenate(all_acts, axis=0)
+
+        # Get activities and targets
+        activities = np.array(trial_data[name]['activities'])
+        targets = np.array(trial_data[name]['targets'])
+
+        # Get final target for each trial
+        final_targets = np.array([t[-1] for t in targets])
+
+        if activities.ndim == 2:
+            activities = activities[None, :, :]
+
+        # Calculate mean states across time for each trial
+        mean_states = activities.mean(axis=1)
+
+        # PCA
         pca = PCA(n_components=2)
-        pca.fit(concat_acts)
-        
-        # Plot trajectories
-        for act, choice in zip(all_acts, all_choices):
-            traj = pca.transform(act)
-            ax.plot(traj[:, 0], traj[:, 1], color=colors_choice[choice], alpha=0.3, linewidth=1)
-            # Mark start
-            ax.scatter(traj[0, 0], traj[0, 1], color=colors_choice[choice], 
-                      s=20, marker='o', alpha=0.5)
-        
-        ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)', fontsize=11)
-        ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)', fontsize=11)
-        ax.set_title(name, fontsize=12, fontweight='bold')
+        proj = pca.fit_transform(mean_states)
+        var_exp = pca.explained_variance_ratio_ * 100
+
+        # Plot each class
+        for cls in np.unique(final_targets):
+            mask = final_targets == cls
+            ax.scatter(proj[mask, 0], proj[mask, 1],
+                      c=colors.get(int(cls), '#999999'),
+                      label=labels.get(int(cls), f'Class {cls}'),
+                      alpha=0.7, s=50, edgecolors='k', linewidths=0.5)
+
+        ax.set_xlabel(f'PC1 ({var_exp[0]:.1f}% var)', fontsize=16, fontweight='bold')
+        ax.set_ylabel(f'PC2 ({var_exp[1]:.1f}% var)', fontsize=16, fontweight='bold')
+        ax.set_title(name, fontsize=18, fontweight='bold')
+        ax.tick_params(axis='both', labelsize=14)
         ax.grid(True, alpha=0.3)
-        
-        if idx == 0:
-            from matplotlib.lines import Line2D
-            legend_elements = [Line2D([0], [0], color=colors_choice[i], lw=2, label=labels_choice[i]) 
-                             for i in [0, 1, 2]]
-            ax.legend(handles=legend_elements, loc='best', fontsize=10)
-    
-    plt.suptitle('Neural Trajectories (PCA) - Correct Trials Only', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+
+    # Shared legend
+    handles, legend_labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, legend_labels, loc='upper right', fontsize=15, frameon=True, shadow=True)
+
+    # Add main title
+    fig.suptitle('PCA of Hidden State Representations', fontsize=20, fontweight='bold', y=0.98)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
     plt.close()
-    print(f"Saved: {output_path}")
+    print(f"Saved PCA subplot figure: {output_path}")
 
 
 def plot_heatmaps(trial_data, output_path='images/question_2D_MSI_heatmaps.png'):
-    """Plot activity heatmaps for correct trials."""
+    """Plot activity heatmaps for correct trials with shared colorbar."""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
+
     model_names = list(trial_data.keys())
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    fig, axes = plt.subplots(2, 2, figsize=(18, 14), sharex=True, sharey=True)
     axes = axes.flatten()
-    
+
+    # Store the last image for shared colorbar
+    last_im = None
+
     for idx, name in enumerate(model_names):
         ax = axes[idx]
-        
+
         # Get correct trials
-        acts_list = [a for a, ok in zip(trial_data[name]['activities'], 
+        acts_list = [a for a, ok in zip(trial_data[name]['activities'],
                                         trial_data[name]['correct']) if ok]
-        
+
         if len(acts_list) == 0:
-            ax.text(0.5, 0.5, 'No correct trials', ha='center', va='center')
-            ax.set_title(name)
+            ax.text(0.5, 0.5, 'No correct trials', ha='center', va='center', fontsize=18)
+            ax.set_title(name, fontsize=20, fontweight='bold')
             continue
-        
+
         # Pad to same length
         min_T = min(a.shape[0] for a in acts_list)
         acts = np.stack([a[:min_T] for a in acts_list], axis=0)
         avg = acts.mean(axis=0)
-        
+
         im = ax.imshow(avg.T, aspect='auto', cmap='viridis',
                       extent=[0, avg.shape[0]-1, 0, avg.shape[1]])
-        ax.set_title(name, fontsize=14, fontweight='bold')
-        ax.set_xlabel('Time (steps)', fontsize=11)
-        ax.set_ylabel('Hidden unit', fontsize=11)
-        
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label='Activity')
-    
-    plt.suptitle('Average Hidden Unit Activity (Correct Trials)', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        last_im = im
+
+        ax.set_title(name, fontsize=20, fontweight='bold')
+        ax.set_xlabel('Time (steps)', fontsize=18, fontweight='bold')
+        ax.set_ylabel('Hidden Unit', fontsize=18, fontweight='bold')
+        ax.tick_params(axis='both', labelsize=15)
+
+    # Add shared colorbar at bottom spanning all axes
+    cbar_ax = fig.add_axes([0.2, 0.04, 0.6, 0.02])
+    cbar = fig.colorbar(last_im, cax=cbar_ax, orientation='horizontal')
+    cbar.set_label('Activity', fontsize=18, fontweight='bold')
+    cbar.ax.tick_params(labelsize=15)
+
+    # Add main title
+    fig.suptitle('Hidden Unit Activity Heatmaps', fontsize=24, fontweight='bold', y=0.98)
+
+    plt.tight_layout(rect=[0, 0.08, 1, 0.96])
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
     plt.close()
     print(f"Saved: {output_path}")
 
@@ -465,21 +511,21 @@ def plot_modality_weighting_analysis(trial_data, output_path='images/question_2D
 
 
 def plot_confusion_matrices(trial_data, output_path='images/question_2D_MSI_confusion_matrices.png'):
-    """Plot confusion matrices for all models."""
+    """Plot confusion matrices for all models (Left vs Right only, excluding Fixate)."""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 14))
     axes = axes.flatten()
-    
+
     model_names = list(trial_data.keys())
-    action_names = ['Fixate (0)', 'Left (1)', 'Right (2)']
-    
+    action_names = ['Left (1)', 'Right (2)']
+
     for idx, name in enumerate(model_names):
         ax = axes[idx]
-        
+
         predictions = np.array(trial_data[name]['predictions'])
         ground_truths = np.array(trial_data[name]['targets'])
-        
+
         # Get final actions
         pred_final = []
         true_final = []
@@ -487,50 +533,63 @@ def plot_confusion_matrices(trial_data, output_path='images/question_2D_MSI_conf
             if len(p) > 0 and len(t) > 0:
                 pred_final.append(np.argmax(p[-1]))
                 true_final.append(t[-1])
-        
+
         pred_final = np.array(pred_final)
         true_final = np.array(true_final)
-        
-        # Build confusion matrix
-        conf_matrix = np.zeros((3, 3))
-        for true_label in range(3):
-            for pred_label in range(3):
-                mask = (true_final == true_label) & (pred_final == pred_label)
-                conf_matrix[true_label, pred_label] = np.sum(mask)
-        
+
+        # Filter out fixation trials (class 0) - only keep Left (1) and Right (2)
+        decision_mask = (true_final == 1) | (true_final == 2)
+        pred_filtered = pred_final[decision_mask]
+        true_filtered = true_final[decision_mask]
+
+        # Create 2x2 confusion matrix for Left vs Right only
+        conf_matrix = np.zeros((2, 2))
+        for i, true_val in enumerate([1, 2]):  # Left=1, Right=2
+            for j, pred_val in enumerate([1, 2]):
+                conf_matrix[i, j] = np.sum((true_filtered == true_val) & (pred_filtered == pred_val))
+
         # Normalize by row (true labels)
         row_sums = conf_matrix.sum(axis=1, keepdims=True)
         row_sums[row_sums == 0] = 1  # Avoid division by zero
         conf_matrix_norm = conf_matrix / row_sums
-        
+
+        # Calculate accuracy for decision trials only
+        decision_accuracy = np.sum(pred_filtered == true_filtered) / len(pred_filtered) if len(pred_filtered) > 0 else 0
+
+        # Calculate balanced accuracy (average of Left recall and Right recall)
+        left_recall = conf_matrix_norm[0, 0] if conf_matrix.sum(axis=1)[0] > 0 else 0
+        right_recall = conf_matrix_norm[1, 1] if conf_matrix.sum(axis=1)[1] > 0 else 0
+        balanced_acc = (left_recall + right_recall) / 2
+
         # Plot
         im = ax.imshow(conf_matrix_norm, cmap='Blues', aspect='auto', vmin=0, vmax=1)
-        
+
         # Add text annotations
-        for i in range(3):
-            for j in range(3):
+        for i in range(2):
+            for j in range(2):
                 count = int(conf_matrix[i, j])
                 pct = conf_matrix_norm[i, j]
                 color = 'white' if pct > 0.5 else 'black'
-                ax.text(j, i, f'{pct:.2f}\n(n={count})',
+                ax.text(j, i, f'{count}\n({pct:.1%})',
                        ha='center', va='center', color=color,
-                       fontsize=10, fontweight='bold')
-        
-        ax.set_xticks(np.arange(3))
-        ax.set_yticks(np.arange(3))
-        ax.set_xticklabels(action_names, fontsize=10)
-        ax.set_yticklabels(action_names, fontsize=10)
-        ax.set_xlabel('Predicted Action', fontsize=11)
-        ax.set_ylabel('True Action', fontsize=11)
-        ax.set_title(name, fontsize=13, fontweight='bold')
-        
-        # Colorbar
+                       fontsize=16, fontweight='bold')
+
+        ax.set_xticks([0, 1])
+        ax.set_yticks([0, 1])
+        ax.set_xticklabels(action_names, fontsize=15)
+        ax.set_yticklabels(action_names, fontsize=15)
+        ax.set_xlabel('Predicted', fontsize=17, fontweight='bold')
+        ax.set_ylabel('Ground Truth', fontsize=17, fontweight='bold')
+        ax.set_title(f'{name}\nDecision Acc: {decision_accuracy:.3f} | Bal Acc: {balanced_acc:.3f}',
+                    fontsize=18, fontweight='bold')
+
+        # Colorbar with larger font
         cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label('Proportion', fontsize=10)
-    
-    plt.suptitle('Confusion Matrices: What Do Models Actually Predict?', fontsize=14, fontweight='bold')
+        cbar.ax.tick_params(labelsize=14)
+
+    plt.suptitle('Confusion Matrices: Left vs Right Decision Performance', fontsize=20, fontweight='bold')
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
     plt.close()
     print(f"Saved: {output_path}")
 
@@ -962,6 +1021,9 @@ if __name__ == '__main__':
     print("MultiSensoryIntegration DQN Analysis")
     print("="*70)
     
+    print("\n[0] Plotting training rewards...")
+    plot_training_rewards(output_path='images/question_2d_MSI_dqn_rewards.png')
+    
     models, env = load_models()
     print("\n[1] Evaluating models...")
     eval_scores = evaluate(models, env, episodes=300)
@@ -1012,6 +1074,7 @@ if __name__ == '__main__':
     print("Analysis Complete!")
     print("="*70)
     print("\nGenerated plots:")
+    print("  0. question_2d_MSI_dqn_rewards.png - Training reward curves (UPDATED FONTS)")
     print("  1. question_2D_MSI_performance.png - Model accuracy comparison")
     print("  2. question_2D_MSI_pca_trajectories.png - Neural trajectories (PCA)")
     print("  3. question_2D_MSI_heatmaps.png - Activity heatmaps")

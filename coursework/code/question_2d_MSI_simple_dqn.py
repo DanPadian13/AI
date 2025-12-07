@@ -38,7 +38,6 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
-
 def train_one_model(model_name, model_type, task='MultiSensoryIntegration-v0', dt=100,
                     num_episodes=3000, device='cpu'):
     """Train a single model on MultiSensoryIntegration task."""
@@ -75,7 +74,7 @@ def train_one_model(model_name, model_type, task='MultiSensoryIntegration-v0', d
     epsilon_decay_end = int(num_episodes * 0.8)  # EXTENDED decay period to 80%
     epsilon_decay_per_episode = (epsilon - epsilon_min) / epsilon_decay_end  # Linear decay
     gamma = 0.99
-    batch_size = 32
+    batch_size = 16
     
     # Track FINAL DECISIONS only (not every timestep action)
     final_action_counts = [0, 0, 0]  # fixate, left, right - only track what ends trials
@@ -140,8 +139,8 @@ def train_one_model(model_name, model_type, task='MultiSensoryIntegration-v0', d
             buffer.push(state, action, reward, next_state, done)
             ep_reward += reward
 
-            # Optimize (every 4 steps AND if buffer big enough)
-            if step % 4 == 0 and len(buffer) >= batch_size:
+            # Optimize (every 16 steps AND if buffer big enough)
+            if step % 16 == 0 and len(buffer) >= batch_size:
                 batch = buffer.sample(batch_size)
 
                 # CRITICAL FIX: Pad sequences to same length for batching
@@ -253,24 +252,27 @@ def main():
     all_nets = {}
 
     for name, mtype in models_to_train:
-        history, net = train_one_model(name, mtype, num_episodes=3000, device=device)
+        history, net = train_one_model(name, mtype, num_episodes=5000, device=device)
         all_histories[name] = history
         all_nets[name] = net
 
     # Plot
     os.makedirs('images', exist_ok=True)
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 7))
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
 
     for (name, _), color in zip(models_to_train, colors):
         rewards = all_histories[name]
         smooth = np.convolve(rewards, np.ones(50)/50, mode='same')
-        plt.plot(smooth, label=name, color=color, linewidth=2)
+        # Exclude final 50 datapoints
+        smooth = smooth[:-50]
+        plt.plot(smooth, label=name, color=color, linewidth=3.0)
 
-    plt.xlabel('Episode')
-    plt.ylabel('Reward (smoothed)')
-    plt.title('DQN on MultiSensoryIntegration-v0 (Parameters Matched to Question 2a)')
-    plt.legend()
+    plt.xlabel('Episode', fontsize=24, fontweight='bold')
+    plt.ylabel('Reward (smoothed)', fontsize=24, fontweight='bold')
+    plt.title('DQN on MultiSensoryIntegration-v0 (Parameters Matched to Question 2a)', fontsize=26, fontweight='bold')
+    plt.legend(fontsize=20)
+    plt.tick_params(axis='both', labelsize=20)
     plt.grid(alpha=0.3)
     plt.tight_layout()
     plt.savefig('images/question_2d_MSI_dqn_rewards.png', dpi=150)
